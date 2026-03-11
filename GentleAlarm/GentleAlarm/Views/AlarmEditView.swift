@@ -45,7 +45,7 @@ struct AlarmEditView: View {
             _selectedTime         = State(initialValue: now)
             _label                = State(initialValue: "Alarm")
             _repeatDays           = State(initialValue: [])
-            _soundName            = State(initialValue: AlarmSound.gentleBells.rawValue)
+            _soundName            = State(initialValue: AlarmSound.possibility.rawValue)
             _rampDurationSeconds  = State(initialValue: 60)
             _snoozeEnabled        = State(initialValue: true)
             _vibrationEnabled     = State(initialValue: true)
