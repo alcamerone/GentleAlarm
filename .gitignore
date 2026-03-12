@@ -2,3 +2,7 @@
 CLAUDE.md
 PLAN.md
 CLAUDE.local.md
+
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
