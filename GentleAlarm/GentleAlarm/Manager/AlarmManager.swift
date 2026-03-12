@@ -16,7 +16,7 @@ final class AlarmManager {
     // MARK: - Public state
 
     /// Non-nil while an alarm is actively firing; drives ActiveAlarmView presentation.
-    private(set) var activeAlarm: Alarm?
+    var activeAlarm: Alarm?
 
     // MARK: - Dependencies
 

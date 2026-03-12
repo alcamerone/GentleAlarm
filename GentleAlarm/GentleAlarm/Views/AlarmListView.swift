@@ -36,7 +36,7 @@ struct AlarmListView: View {
                 .onDelete(perform: deleteAlarms)
             }
         }
-        .navigationTitle("Alarm")
+        .navigationTitle("Alarms")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -45,6 +45,7 @@ struct AlarmListView: View {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("Add alarm")
+                .accessibilityIdentifier("addAlarmButton")
             }
         }
         .sheet(isPresented: $showingAddSheet) {

@@ -44,9 +44,11 @@ struct ActiveAlarmView: View {
                     if alarm.snoozeEnabled {
                         Button("Snooze") { alarmManager.snooze() }
                             .buttonStyle(AlarmActionButtonStyle(prominent: false))
+                            .accessibilityIdentifier("snoozeButton")
                     }
                     Button("Dismiss") { alarmManager.dismiss() }
                         .buttonStyle(AlarmActionButtonStyle(prominent: true))
+                        .accessibilityIdentifier("dismissButton")
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 60)

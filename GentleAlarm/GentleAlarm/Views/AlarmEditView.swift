@@ -67,6 +67,7 @@ struct AlarmEditView: View {
                 // ── Label ─────────────────────────────────────────────────
                 Section {
                     TextField("Label", text: $label)
+                        .accessibilityIdentifier("alarmLabelField")
                 }
 
                 // ── Repeat days ───────────────────────────────────────────
@@ -104,9 +105,11 @@ struct AlarmEditView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .accessibilityIdentifier("cancelAlarmButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
+                        .accessibilityIdentifier("saveAlarmButton")
                 }
             }
         }

@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct RepeatDays: OptionSet, Codable {
+struct RepeatDays: Codable, Sendable {
     let rawValue: UInt8
 
     static let sunday    = RepeatDays(rawValue: 1 << 0)
@@ -75,3 +75,7 @@ struct RepeatDays: OptionSet, Codable {
         return nil
     }
 }
+
+// Conformance is declared in a separate extension so `@preconcurrency` can be applied,
+// preventing spurious @MainActor isolation inference that cascades from Alarm (@Model).
+extension RepeatDays: @preconcurrency OptionSet {}
