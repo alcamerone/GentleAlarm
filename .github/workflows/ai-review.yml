@@ -155,12 +155,12 @@ jobs:
             # Extract findings rows: table rows under "### Findings", skip header and separator lines
             PRIOR_FINDINGS=$(echo "$ALL_COMMENTS" \
               | awk '/^### Findings/{f=1;next} f && /^###/{f=0} f && /^\|/{print}' \
-              | grep -v '^| File' | grep -v '^|[-|]')
+              | grep -v '^| File' | grep -v '^|[-|]' || true)
 
             # Extract nits rows: same pattern under "### Nits"
             PRIOR_NITS=$(echo "$ALL_COMMENTS" \
               | awk '/^### Nits/{f=1;next} f && /^###/{f=0} f && /^\|/{print}' \
-              | grep -v '^| File' | grep -v '^|[-|]')
+              | grep -v '^| File' | grep -v '^|[-|]' || true)
 
             # Default to "None" if empty
             PRIOR_FINDINGS="${PRIOR_FINDINGS:-None}"
