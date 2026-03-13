@@ -18,7 +18,7 @@ struct AlarmRowView: View {
         HStack(spacing: 0) {
             // .borderless gives List-cell-aware button priority over the cell's default tap,
             // while keeping the Toggle's UISwitch as a separate accessibility element on the right.
-            Button(action: { onEditTap?() }) {
+            Button(action: { onEditTap?() }, label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
                         Text(timeString)
@@ -34,7 +34,7 @@ struct AlarmRowView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            })
             .buttonStyle(.borderless)
 
             Toggle("", isOn: Binding(
