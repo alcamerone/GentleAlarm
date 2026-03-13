@@ -1,0 +1,152 @@
+# GentleAlarm — Code Review Agent Policy
+# Applied automatically to all incoming pull requests.
+
+version: 1
+
+checks:
+
+  # ---------------------------------------------------------------------------
+  # CI — all automated checks must be green
+  # ---------------------------------------------------------------------------
+  - id: tests_pass
+    description: All unit and UI tests must pass.
+    required: true
+    rule: |
+      Run the full test suite via xcodebuild. Fail the review if any test
+      reports a failure or error. A PR that breaks existing tests must not
+      be merged, even if the author provides a justification.
+
+  - id: no_lint_errors
+    description: Zero SwiftLint violations are permitted.
+    required: true
+    rule: |
+      Run `swiftlint lint` with the repo's .swiftlint.yml. Any violation at
+      severity "error" blocks the PR. Warnings should be noted in the review
+      comment but do not block merge on their own — however, a PR must not
+      introduce *new* warnings compared to the base branch.
+
+  # ---------------------------------------------------------------------------
+  # Test coverage
+  # ---------------------------------------------------------------------------
+  - id: tests_updated
+    description: Tests must be updated to reflect code changes.
+    required: true
+    rule: |
+      If a PR modifies logic in Model/, Manager/, or any file covered by the
+      existing test suite, corresponding tests must be updated or added.
+      Reviewer should check that changed code paths are exercised by at least
+      one test.
+
+  - id: no_assertion_removal
+    description: Test assertions must not be removed or weakened without replacement.
+    required: true
+    rule: |
+      Removing an `#expect(...)` or `XCTAssert*` call, loosening a condition
+      (e.g. changing `==` to `!=` or removing a `#expect` entirely), or
+      deleting a test function is only permitted if it is replaced by an
+      equivalent or stronger assertion. Net reduction in test coverage is a
+      blocking issue.
+
+  # ---------------------------------------------------------------------------
+  # Security — secrets and PII
+  # ---------------------------------------------------------------------------
+  - id: no_hardcoded_secrets
+    description: No secrets, credentials, or API keys may be hardcoded.
+    required: true
+    severity: critical
+    rule: |
+      Scan the diff for patterns that suggest hardcoded secrets: API keys,
+      tokens, passwords, private keys, UUIDs that look like auth credentials,
+      or any string assigned to a variable named key, secret, token, password,
+      credential, or similar. Flag any match as a blocking critical issue.
+      This includes test files — secrets must never appear in source, even in
+      tests.
+
+  - id: no_pii_leaks
+    description: Personally identifiable information must not be logged or exposed.
+    required: true
+    severity: high
+    rule: |
+      Review any new logging, analytics, or network calls introduced by the PR.
+      Flag if user-identifiable data (name, email, device ID, location, alarm
+      schedules tied to identity) is transmitted externally or written to a
+      location accessible outside the app sandbox without explicit user consent.
+
+  # ---------------------------------------------------------------------------
+  # Security — code execution and safety features
+  # ---------------------------------------------------------------------------
+  - id: no_arbitrary_code_execution
+    description: The PR must not introduce arbitrary or dynamic code execution.
+    required: true
+    severity: critical
+    rule: |
+      Flag any use of: `NSTask` / `Process`, shell command invocation,
+      `dlopen` / `dlsym`, `NSClassFromString` used to invoke untrusted classes,
+      JavaScript evaluation (`WKWebView.evaluateJavaScript` with external
+      input), or loading of unsigned dynamic libraries. These are blocking
+      critical issues.
+
+  - id: no_safety_circumvention
+    description: On-device and in-code safety features must not be bypassed.
+    required: true
+    severity: critical
+    rule: |
+      Flag any change that: disables App Transport Security without
+      justification, removes entitlement restrictions, bypasses iOS permission
+      prompts, disables SwiftLint or other static analysis for non-trivial
+      code blocks (e.g. `// swiftlint:disable` covering security-relevant
+      rules), weakens or removes `preconditionFailure` / `assert` guards in
+      safety-critical paths (audio engine, alarm scheduling), or strips
+      code-signing requirements. These are blocking critical issues.
+
+  # ---------------------------------------------------------------------------
+  # High-risk changes
+  # ---------------------------------------------------------------------------
+  - id: flag_high_risk_changes
+    description: High-risk changes must be flagged for human review.
+    required: true
+    rule: |
+      The following change categories are considered high-risk and must be
+      called out explicitly in the review summary, even if all other checks
+      pass:
+        - Changes to AlarmManager.swift (scheduling and alarm firing logic)
+        - Changes to AudioEngine.swift (background execution keepalive)
+        - Changes to NotificationManager.swift (system notification handling)
+        - Changes to Info.plist or entitlements (permission and capability changes)
+        - Changes to the SwiftData @Model schema in Alarm.swift (data migration risk)
+        - New or modified network calls
+        - Any change that touches more than 20% of the codebase in a single PR
+
+  - id: codeowner_approval_for_high_risk
+    description: High-risk changes require approval from a CODEOWNER before merge.
+    required: true
+    rule: |
+      If the `flag_high_risk_changes` check raises any findings, the PR may
+      not be merged without an explicit approval from a user listed in
+      CODEOWNERS. An approving review from the PR author does not satisfy this
+      requirement if the author is also the CODEOWNER — a second reviewer is
+      required in that case.
+
+  # ---------------------------------------------------------------------------
+  # General review guidance
+  # ---------------------------------------------------------------------------
+  - id: general_quality
+    description: General code quality guidance (non-blocking).
+    required: false
+    rule: |
+      In addition to the required checks above, the reviewer should note (but
+      not block on) the following:
+        - Functions or types that are significantly more complex than necessary
+        - Missing or misleading inline comments on non-obvious logic
+        - Inconsistency with existing naming or architectural conventions
+        - New dependencies added without a stated justification in the PR description
+
+# ---------------------------------------------------------------------------
+# Review output format
+# ---------------------------------------------------------------------------
+output:
+  summary: true          # post a top-level pass/fail summary comment
+  inline_comments: true  # post inline comments on specific diff lines where possible
+  blocking_label: "needs-changes"
+  approved_label: "agent-approved"
+  high_risk_label: "needs-codeowner-review"

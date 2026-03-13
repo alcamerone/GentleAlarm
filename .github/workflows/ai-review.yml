@@ -1,0 +1,316 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Minimal permissions: read code, write PR comments
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+# Cancel in-flight runs for the same PR when a new commit is pushed
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. collect_diff
+  #    Checkout the repo and produce a unified diff of this PR's changes.
+  #    The diff is uploaded as an artifact so later jobs can download it
+  #    without needing a second checkout.
+  # ---------------------------------------------------------------------------
+  collect_diff:
+    name: Collect diff
+    runs-on: ubuntu-latest
+    outputs:
+      diff_available: ${{ steps.diff.outputs.diff_available }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed for accurate diffing
+
+      - name: Generate PR diff
+        id: diff
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+
+          LINES=$(wc -l < pr_diff.txt)
+          echo "Diff is $LINES lines."
+
+          if [ "$LINES" -eq 0 ]; then
+            echo "diff_available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "diff_available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr_diff
+          path: pr_diff.txt
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 2. ai_review
+  #    Send the diff and the repo's review policy to the Claude API.
+  #    Posts a structured pass/fail review as a PR comment.
+  #    Outputs policy_passed=true|false for the gate job.
+  # ---------------------------------------------------------------------------
+  ai_review:
+    name: AI policy review
+    needs: collect_diff
+    if: needs.collect_diff.outputs.diff_available == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      policy_passed: ${{ steps.review.outputs.policy_passed }}
+      risk_level: ${{ steps.review.outputs.risk_level }}
+      tests_adequate: ${{ steps.review.outputs.tests_adequate }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download diff
+        uses: actions/download-artifact@v4
+        with:
+          name: pr_diff
+
+      - name: Send to Claude for policy review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROMPT=$(cat .agent/reviewer_prompt.md)
+          POLICY=$(cat .agent/policy.yml)
+          DIFF=$(cat pr_diff.txt | head -800)
+
+          RESPONSE=$(curl --fail-with-body -s https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d "$(jq -n \
+              --arg prompt "$PROMPT" \
+              --arg policy "$POLICY" \
+              --arg diff "$DIFF" \
+              '{
+                model: "claude-sonnet-4-6",
+                max_tokens: 4096,
+                system: $prompt,
+                messages: [{
+                  role: "user",
+                  content: "POLICY:\n\($policy)\n\n---\nDIFF:\n\($diff)"
+                }]
+              }')")
+
+          REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          # Parse verdict (machine-readable line in prompt output)
+          if echo "$REVIEW_TEXT" | grep -q "^## ✅ Review: PASS"; then
+            echo "policy_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "policy_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Parse risk level (machine-readable line in prompt output)
+          RISK=$(echo "$REVIEW_TEXT" | grep -oP '(?<=\*\*Risk Level:\*\* )(LOW|MEDIUM|HIGH)' | head -1)
+          echo "risk_level=${RISK:-UNKNOWN}" >> "$GITHUB_OUTPUT"
+
+          # Parse test coverage adequacy (machine-readable line in prompt output)
+          TESTS=$(echo "$REVIEW_TEXT" | grep -oP '(?<=\*\*Tests Adequate:\*\* )(YES|NO)' | head -1)
+          echo "tests_adequate=${TESTS:-NO}" >> "$GITHUB_OUTPUT"
+
+          # Post the review as a PR comment
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body "$REVIEW_TEXT" \
+            --repo "${{ github.repository }}"
+
+  # ---------------------------------------------------------------------------
+  # 3. suggest_tests
+  #    Only runs if ai_review flagged inadequate test coverage (Tests Adequate: NO).
+  #    Asks Claude to suggest specific tests for the uncovered logic and posts
+  #    them as a separate PR comment.
+  # ---------------------------------------------------------------------------
+  suggest_tests:
+    name: Suggest missing tests
+    needs: ai_review
+    if: needs.ai_review.outputs.tests_adequate == 'NO'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download diff
+        uses: actions/download-artifact@v4
+        with:
+          name: pr_diff
+
+      - name: Ask Claude for test suggestions
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROMPT=$(cat .agent/test_suggester_prompt.md)
+          DIFF=$(cat pr_diff.txt | head -800)
+
+          RESPONSE=$(curl --fail-with-body -s https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d "$(jq -n \
+              --arg prompt "$PROMPT" \
+              --arg diff "$DIFF" \
+              '{
+                model: "claude-sonnet-4-6",
+                max_tokens: 2048,
+                system: $prompt,
+                messages: [{
+                  role: "user",
+                  content: "DIFF:\n\($diff)"
+                }]
+              }')")
+
+          SUGGESTIONS=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          # Only post if there is actionable content
+          if ! echo "$SUGGESTIONS" | grep -qi "no additional tests required"; then
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body "$SUGGESTIONS" \
+              --repo "${{ github.repository }}"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 4. ci_checks
+  #    Run SwiftLint and the full test suite on a macOS runner with Xcode.
+  #    Outputs lint_passed and tests_passed for the gate job.
+  # ---------------------------------------------------------------------------
+  ci_checks:
+    name: SwiftLint + tests
+    runs-on: macos-latest
+    outputs:
+      lint_passed: ${{ steps.lint.outputs.lint_passed }}
+      tests_passed: ${{ steps.tests.outputs.tests_passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        id: lint
+        run: |
+          # --strict treats warnings as errors; keeps CI stricter than local dev.
+          if swiftlint lint --config .swiftlint.yml --strict; then
+            echo "lint_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "lint_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve simulator UDID
+        id: sim
+        run: |
+          # Pick the latest available iPhone simulator at runtime so the
+          # workflow stays valid as Xcode updates ship new simulator runtimes.
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '
+                .devices
+                | to_entries[]
+                | select(.key | test("iOS"))
+                | .value[]
+                | select(.name | test("iPhone"))
+                | select(.isAvailable == true)
+                | .udid
+              ' \
+            | tail -1)
+
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found." >&2
+            exit 1
+          fi
+
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $UDID"
+
+      - name: Run tests
+        id: tests
+        run: |
+          if xcodebuild test \
+            -scheme GentleAlarm \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            2>&1 | tee xcodebuild.log | grep -E "^(▸|✓|✗|warning:|error:|Test (Suite|Case)|Executed)"; then
+            echo "tests_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tests_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults.xcresult
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 5. gate
+  #    Required status check. Aggregates results from all previous jobs.
+  #    Fails (blocking merge) if any required check did not pass.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Gate
+    needs: [ai_review, suggest_tests, ci_checks]
+    runs-on: ubuntu-latest
+    if: always()  # run even if an upstream job was skipped or failed
+    steps:
+      - name: Evaluate all checks
+        env:
+          POLICY_PASSED: ${{ needs.ai_review.outputs.policy_passed }}
+          RISK_LEVEL: ${{ needs.ai_review.outputs.risk_level }}
+          LINT_PASSED: ${{ needs.ci_checks.outputs.lint_passed }}
+          TESTS_PASSED: ${{ needs.ci_checks.outputs.tests_passed }}
+        run: |
+          echo "╔══════════════════════════════╗"
+          echo "║         Gate Summary         ║"
+          echo "╠══════════════════════════════╣"
+          printf "║  Policy review : %-12s║\n" "$POLICY_PASSED"
+          printf "║  Risk level    : %-12s║\n" "$RISK_LEVEL"
+          printf "║  SwiftLint     : %-12s║\n" "$LINT_PASSED"
+          printf "║  Tests         : %-12s║\n" "$TESTS_PASSED"
+          echo "╚══════════════════════════════╝"
+
+          FAILED=0
+
+          if [ "$POLICY_PASSED" != "true" ]; then
+            echo "❌ Policy review failed — see AI review comment on the PR."
+            FAILED=1
+          fi
+
+          # HIGH risk is a separate gate: the PR may be technically correct but
+          # still requires a CODEOWNER to sign off before it can be merged.
+          if [ "$RISK_LEVEL" = "HIGH" ]; then
+            echo "❌ High-risk changes detected — CODEOWNER approval required before merge."
+            FAILED=1
+          fi
+
+          if [ "$LINT_PASSED" != "true" ]; then
+            echo "❌ SwiftLint failed — fix all linting errors before merging."
+            FAILED=1
+          fi
+
+          if [ "$TESTS_PASSED" != "true" ]; then
+            echo "❌ Test suite failed — all tests must pass before merging."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "✅ All checks passed. PR is clear to merge (subject to human review)."
+            exit 0
+          else
+            exit 1
+          fi
