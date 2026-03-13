@@ -76,4 +76,59 @@ struct AlarmManagerTests {
         let (manager, _) = try makeManager()
         manager.reschedule()  // must not crash with empty context
     }
+
+    // MARK: - nearestPendingAlarm()
+
+    @Test @MainActor func testNearestAlarmPicksEarliest() throws {
+        let (manager, context) = try makeManager()
+
+        let now = Date()
+        // Alarm firing in 1 hour
+        let sooner = Alarm(hour: Calendar.current.component(.hour, from: now.addingTimeInterval(3600)),
+                           minute: Calendar.current.component(.minute, from: now.addingTimeInterval(3600)))
+        // Alarm firing in 3 hours
+        let later = Alarm(hour: Calendar.current.component(.hour, from: now.addingTimeInterval(10800)),
+                          minute: Calendar.current.component(.minute, from: now.addingTimeInterval(10800)))
+        context.insert(sooner)
+        context.insert(later)
+
+        let result = manager.nearestPendingAlarm()
+        #expect(result?.0.id == sooner.id)
+    }
+
+    @Test func testNearestAlarmReturnsNilWhenEmpty() throws {
+        let (manager, _) = try makeManager()
+        #expect(manager.nearestPendingAlarm() == nil)
+    }
+
+    @Test func testNearestAlarmSkipsDisabled() throws {
+        let (manager, context) = try makeManager()
+        let alarm = Alarm(hour: 7, minute: 0)
+        alarm.isEnabled = false
+        context.insert(alarm)
+        #expect(manager.nearestPendingAlarm() == nil)
+    }
+
+    @Test @MainActor func testNearestAlarmSnoozeOverrides() throws {
+        let (manager, context) = try makeManager()
+
+        let now = Date()
+        // Alarm firing in 2 hours
+        let alarm = Alarm(hour: Calendar.current.component(.hour, from: now.addingTimeInterval(7200)),
+                          minute: Calendar.current.component(.minute, from: now.addingTimeInterval(7200)))
+        context.insert(alarm)
+
+        // Snooze it — sets snoozeFireDate to ~9 minutes from now
+        manager.activeAlarm = alarm
+        manager.snooze()
+
+        // Second alarm firing in 3 hours
+        let later = Alarm(hour: Calendar.current.component(.hour, from: now.addingTimeInterval(10800)),
+                          minute: Calendar.current.component(.minute, from: now.addingTimeInterval(10800)))
+        context.insert(later)
+
+        let result = manager.nearestPendingAlarm()
+        // Snooze date (~9 min) is earlier than both original alarm times
+        #expect(result?.0.id == alarm.id)
+    }
 }

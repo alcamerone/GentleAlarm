@@ -32,6 +32,7 @@ final class NotificationManager: NSObject {
     // MARK: - Permission
 
     func requestPermission() {
+        // Permission denial is surfaced via the system permission prompt; no in-app gating needed
         center.requestAuthorization(options: [.alert, .sound]) { _, error in
             if let error {
                 print("NotificationManager: permission request failed: \(error)")

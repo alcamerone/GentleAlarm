@@ -11,6 +11,7 @@ excluded:
 # Rules disabled because they conflict with this project's conventions
 disabled_rules:
   - trailing_whitespace       # Xcode auto-manages this
+  - trailing_comma            # Project convention: no trailing commas
 
 opt_in_rules:
   - empty_count               # prefer .isEmpty over .count == 0
