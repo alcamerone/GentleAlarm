@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct AlarmListView: View {
 
@@ -15,25 +15,26 @@ struct AlarmListView: View {
     private var alarms: [Alarm]
 
     @State private var showingAddSheet = false
-    @State private var editingAlarm: Alarm? = nil
+    @State private var editingAlarm: Alarm?
 
     var body: some View {
         List {
-            if let next = nextAlarmSummary {
-                Section {
-                    Text(next)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.clear)
+            ForEach(alarms) { alarm in
+                AlarmRowView(alarm: alarm) {
+                    editingAlarm = alarm
                 }
             }
-
-            Section {
-                ForEach(alarms) { alarm in
-                    AlarmRowView(alarm: alarm)
-                        .onTapGesture { editingAlarm = alarm }
-                }
-                .onDelete(perform: deleteAlarms)
+            .onDelete(perform: deleteAlarms)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let next = nextAlarmSummary {
+                Text(next)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 6)
+                    .background(.bar)
             }
         }
         .navigationTitle("Alarms")

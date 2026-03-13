@@ -18,7 +18,7 @@ final class NotificationManager: NSObject {
 
     static let shared = NotificationManager()
 
-    var onSnooze:  (() -> Void)?
+    var onSnooze: (() -> Void)?
     var onDismiss: (() -> Void)?
 
     private let center = UNUserNotificationCenter.current()
@@ -32,7 +32,8 @@ final class NotificationManager: NSObject {
     // MARK: - Permission
 
     func requestPermission() {
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+        // Permission denial is surfaced via the system permission prompt; no in-app gating needed
+        center.requestAuthorization(options: [.alert, .sound]) { _, error in
             if let error {
                 print("NotificationManager: permission request failed: \(error)")
             }

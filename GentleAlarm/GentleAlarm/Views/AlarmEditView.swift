@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct AlarmEditView: View {
 
@@ -130,7 +130,7 @@ struct AlarmEditView: View {
 
     private func save() {
         let calendar = Calendar.current
-        let hour   = calendar.component(.hour,   from: selectedTime)
+        let hour   = calendar.component(.hour, from: selectedTime)
         let minute = calendar.component(.minute, from: selectedTime)
 
         if let alarm {

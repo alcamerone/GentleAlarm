@@ -118,4 +118,34 @@ struct AlarmModelTests {
         alarm.repeatDays = .weekdays
         #expect(alarm.repeatDays == .weekdays)
     }
+
+    // MARK: - 12-hour display
+
+    @Test func testHour12Midnight() {
+        let alarm = Alarm(hour: 0, minute: 0)
+        let hour12 = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
+        #expect(hour12 == 12)
+        #expect("\(hour12):\(String(format: "%02d", alarm.minute))" == "12:00")
+    }
+
+    @Test func testHour12Noon() {
+        let alarm = Alarm(hour: 12, minute: 0)
+        let hour12 = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
+        #expect(hour12 == 12)
+        #expect("\(hour12):\(String(format: "%02d", alarm.minute))" == "12:00")
+    }
+
+    @Test func testHour12Afternoon() {
+        let alarm = Alarm(hour: 13, minute: 5)
+        let hour12 = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
+        #expect(hour12 == 1)
+        #expect("\(hour12):\(String(format: "%02d", alarm.minute))" == "1:05")
+    }
+
+    @Test func testHour12MinutePadding() {
+        let alarm = Alarm(hour: 9, minute: 3)
+        let hour12 = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
+        #expect(hour12 == 9)
+        #expect("\(hour12):\(String(format: "%02d", alarm.minute))" == "9:03")
+    }
 }
