@@ -84,10 +84,20 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_ACTION: ${{ github.event.action }}
         run: |
           PROMPT=$(cat .agent/reviewer_prompt.md)
           POLICY=$(cat .agent/policy.yml)
           DIFF=$(cat pr_diff.txt | head -800)
+
+          # Tell Claude whether this is the first review on the PR or a follow-up
+          # triggered by a subsequent push. On follow-up runs the Summary and Risk
+          # Level prose sections are omitted to reduce comment noise.
+          if [ "$PR_ACTION" = "opened" ]; then
+            IS_FIRST_RUN="true"
+          else
+            IS_FIRST_RUN="false"
+          fi
 
           RESPONSE=$(curl --fail-with-body -s https://api.anthropic.com/v1/messages \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
@@ -97,13 +107,14 @@ jobs:
               --arg prompt "$PROMPT" \
               --arg policy "$POLICY" \
               --arg diff "$DIFF" \
+              --arg first_run "$IS_FIRST_RUN" \
               '{
                 model: "claude-sonnet-4-6",
                 max_tokens: 4096,
                 system: $prompt,
                 messages: [{
                   role: "user",
-                  content: "POLICY:\n\($policy)\n\n---\nDIFF:\n\($diff)"
+                  content: "IS_FIRST_RUN: \($first_run)\n\nPOLICY:\n\($policy)\n\n---\nDIFF:\n\($diff)"
                 }]
               }')")
 
