@@ -239,11 +239,12 @@ jobs:
       - name: Run tests
         id: tests
         run: |
+          set -o pipefail
           if xcodebuild test \
             -scheme GentleAlarm \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
-            2>&1 | tee xcodebuild.log | grep -E "^(▸|✓|✗|warning:|error:|Test (Suite|Case)|Executed)"; then
+            2>&1 | tee xcodebuild.log; then
             echo "tests_passed=true" >> "$GITHUB_OUTPUT"
           else
             echo "tests_passed=false" >> "$GITHUB_OUTPUT"
