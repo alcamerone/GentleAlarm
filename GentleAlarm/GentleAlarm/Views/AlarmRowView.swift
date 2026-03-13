@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct AlarmRowView: View {
 
@@ -43,8 +43,8 @@ struct AlarmRowView: View {
     // MARK: - Helpers
 
     private var timeString: String {
-        let h = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
-        return String(format: "%d:%02d", h, alarm.minute)
+        let hour12 = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
+        return String(format: "%d:%02d", hour12, alarm.minute)
     }
 
     private var amPm: String {

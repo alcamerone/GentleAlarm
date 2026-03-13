@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct AlarmListView: View {
 
@@ -15,7 +15,7 @@ struct AlarmListView: View {
     private var alarms: [Alarm]
 
     @State private var showingAddSheet = false
-    @State private var editingAlarm: Alarm? = nil
+    @State private var editingAlarm: Alarm?
 
     var body: some View {
         List {

@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
 struct GentleAlarmApp: App {

@@ -157,16 +157,16 @@ final class AlarmManager {
         for alarm in alarms {
             let fireDate: Date?
 
-            if alarm.id == snoozeAlarmID, let sd = snoozeFireDate {
-                fireDate = sd
+            if alarm.id == snoozeAlarmID, let snoozeDate = snoozeFireDate {
+                fireDate = snoozeDate
             } else {
                 fireDate = alarm.nextFireDate(after: now)
             }
 
-            guard let fd = fireDate else { continue }
+            guard let nextDate = fireDate else { continue }
 
-            if best == nil || fd < best!.1 {
-                best = (alarm, fd)
+            if best.map({ nextDate < $0.1 }) ?? true {
+                best = (alarm, nextDate)
             }
         }
 

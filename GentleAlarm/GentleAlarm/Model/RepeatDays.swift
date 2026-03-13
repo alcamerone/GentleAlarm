@@ -22,13 +22,13 @@ struct RepeatDays: Codable, Sendable {
 
     /// Ordered array of (day, abbreviation) pairs starting from Monday.
     static let orderedDays: [(RepeatDays, String)] = [
-        (.monday,    "M"),
-        (.tuesday,   "T"),
+        (.monday, "M"),
+        (.tuesday, "T"),
         (.wednesday, "W"),
-        (.thursday,  "T"),
-        (.friday,    "F"),
-        (.saturday,  "S"),
-        (.sunday,    "S"),
+        (.thursday, "T"),
+        (.friday, "F"),
+        (.saturday, "S"),
+        (.sunday, "S")
     ]
 
     /// Full day names in the same Monday-first order as `orderedDays`.
@@ -38,10 +38,10 @@ struct RepeatDays: Codable, Sendable {
 
     /// Returns a human-readable summary, e.g. "Weekdays", "Every day", "Mon, Wed, Fri".
     var displayText: String {
-        if self == .all       { return "Every day" }
-        if self == .weekdays  { return "Weekdays" }
-        if self == .weekend   { return "Weekends" }
-        if self.isEmpty       { return "Never" }
+        if self == .all { return "Every day" }
+        if self == .weekdays { return "Weekdays" }
+        if self == .weekend { return "Weekends" }
+        if self.isEmpty { return "Never" }
 
         let names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         let bits: [RepeatDays] = [.monday, .tuesday, .wednesday, .thursday, .friday, .saturday, .sunday]
