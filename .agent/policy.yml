@@ -109,9 +109,6 @@ checks:
       The following change categories are considered high-risk and must be
       called out explicitly in the review summary, even if all other checks
       pass:
-        - Changes to AlarmManager.swift (scheduling and alarm firing logic)
-        - Changes to AudioEngine.swift (background execution keepalive)
-        - Changes to NotificationManager.swift (system notification handling)
         - Changes to Info.plist or entitlements (permission and capability changes)
         - Changes to the SwiftData @Model schema in Alarm.swift (data migration risk)
         - New or modified network calls
