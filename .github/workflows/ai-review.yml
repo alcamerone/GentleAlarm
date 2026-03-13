@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       diff_available: ${{ steps.diff.outputs.diff_available }}
+      diff_mode: ${{ steps.diff_mode.outputs.diff_mode }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,12 +49,56 @@ jobs:
             echo "diff_available=true" >> "$GITHUB_OUTPUT"
           fi
 
+          # Record current HEAD for use by the next run's incremental diff
+          git rev-parse HEAD > prior_sha.txt
+
+      - name: Download prior SHA
+        id: prior_sha_dl
+        uses: actions/download-artifact@v4
+        with:
+          name: prior_sha
+          path: ./prior_artifact/
+        continue-on-error: true
+
+      - name: Compute diff mode
+        id: diff_mode
+        run: |
+          FULL_LINES=$(wc -l < pr_diff.txt)
+
+          if [ -f ./prior_artifact/prior_sha.txt ] && [ "${{ steps.prior_sha_dl.outcome }}" = "success" ]; then
+            PRIOR_SHA=$(cat ./prior_artifact/prior_sha.txt)
+            git diff "$PRIOR_SHA"...HEAD > incr_diff.txt
+            INCR_LINES=$(wc -l < incr_diff.txt)
+
+            # Fall back to full diff if incremental is large in absolute terms
+            # OR is nearly as large as the full diff (heavy refactoring)
+            if [ "$INCR_LINES" -gt 200 ] || \
+               { [ "$FULL_LINES" -gt 0 ] && [ "$((INCR_LINES * 100 / FULL_LINES))" -gt 70 ]; }; then
+              DIFF_MODE=full
+            else
+              DIFF_MODE=incremental
+              cp incr_diff.txt pr_diff.txt   # overwrite so downstream step sees correct file
+            fi
+          else
+            DIFF_MODE=full
+          fi
+
+          echo "diff_mode=$DIFF_MODE" >> "$GITHUB_OUTPUT"
+
       - name: Upload diff artifact
         uses: actions/upload-artifact@v4
         with:
           name: pr_diff
           path: pr_diff.txt
           retention-days: 1
+
+      - name: Upload prior SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: prior_sha
+          path: prior_sha.txt
+          overwrite: true
+          retention-days: 30
 
   # ---------------------------------------------------------------------------
   # 2. ai_review
@@ -85,6 +130,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_ACTION: ${{ github.event.action }}
+          DIFF_MODE: ${{ needs.collect_diff.outputs.diff_mode }}
         run: |
           PROMPT=$(cat .agent/reviewer_prompt.md)
           POLICY=$(cat .agent/policy.yml)
@@ -95,8 +141,30 @@ jobs:
           # Level prose sections are omitted to reduce comment noise.
           if [ "$PR_ACTION" = "opened" ]; then
             IS_FIRST_RUN="true"
+            PRIOR_FINDINGS="None"
+            PRIOR_NITS="None"
           else
             IS_FIRST_RUN="false"
+
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+
+            # Fetch all github-actions[bot] comments on this PR, concatenated
+            ALL_COMMENTS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.user.login == "github-actions[bot]") | .body] | join("\n")')
+
+            # Extract findings rows: table rows under "### Findings", skip header and separator lines
+            PRIOR_FINDINGS=$(echo "$ALL_COMMENTS" \
+              | awk '/^### Findings/{f=1;next} f && /^###/{f=0} f && /^\|/{print}' \
+              | grep -v '^| File' | grep -v '^|[-|]')
+
+            # Extract nits rows: same pattern under "### Nits"
+            PRIOR_NITS=$(echo "$ALL_COMMENTS" \
+              | awk '/^### Nits/{f=1;next} f && /^###/{f=0} f && /^\|/{print}' \
+              | grep -v '^| File' | grep -v '^|[-|]')
+
+            # Default to "None" if empty
+            PRIOR_FINDINGS="${PRIOR_FINDINGS:-None}"
+            PRIOR_NITS="${PRIOR_NITS:-None}"
           fi
 
           RESPONSE=$(curl --fail-with-body -s https://api.anthropic.com/v1/messages \
@@ -108,13 +176,16 @@ jobs:
               --arg policy "$POLICY" \
               --arg diff "$DIFF" \
               --arg first_run "$IS_FIRST_RUN" \
+              --arg diff_mode "$DIFF_MODE" \
+              --arg prior_findings "$PRIOR_FINDINGS" \
+              --arg prior_nits "$PRIOR_NITS" \
               '{
                 model: "claude-sonnet-4-6",
                 max_tokens: 4096,
                 system: $prompt,
                 messages: [{
                   role: "user",
-                  content: "IS_FIRST_RUN: \($first_run)\n\nPOLICY:\n\($policy)\n\n---\nDIFF:\n\($diff)"
+                  content: "IS_FIRST_RUN: \($first_run)\nDIFF_MODE: \($diff_mode)\n\nPRIOR_FINDINGS:\n\($prior_findings)\n\nPRIOR_NITS:\n\($prior_nits)\n\nPOLICY:\n\($policy)\n\n---\nDIFF:\n\($diff)"
                 }]
               }')")
 

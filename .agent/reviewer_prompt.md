@@ -44,7 +44,10 @@ Produce your review in exactly this structure, in markdown:
 ### Nits
 <!-- Non-blocking suggestions: style, naming, minor improvements. -->
 <!-- If none, write "None." -->
-- ...
+| File | Lines | Suggestion |
+|------|-------|------------|
+| `filename.swift` | 45 | Suggestion text |
+| — | — | General suggestion not tied to a specific location |
 
 ### Test Coverage
 <!-- Assess whether new or changed logic is adequately covered by tests in the diff. -->
@@ -87,7 +90,10 @@ Omit the Summary and Risk Level sections — they were already posted when the P
 ### Nits
 <!-- Non-blocking suggestions: style, naming, minor improvements. -->
 <!-- If none, write "None." -->
-- ...
+| File | Lines | Suggestion |
+|------|-------|------------|
+| `filename.swift` | 45 | Suggestion text |
+| — | — | General suggestion not tied to a specific location |
 
 ### Test Coverage
 ...
@@ -114,3 +120,21 @@ Omit the Summary and Risk Level sections — they were already posted when the P
 - A HIGH risk level always produces a FAIL verdict.
 - Be specific: reference filenames and line numbers in findings wherever possible.
 - Do not invent findings that are not supported by the diff.
+
+---
+
+## Handling prior review context (IS_FIRST_RUN: false only)
+
+You will receive:
+- `DIFF_MODE: incremental` — the diff shows only commits added since the last review
+- `DIFF_MODE: full` — heavy refactoring was detected; the diff is the full PR diff
+
+You will also receive:
+- `PRIOR_FINDINGS`: table rows of findings already posted in earlier review comments
+- `PRIOR_NITS`: table rows of nits already posted in earlier review comments
+
+Rules:
+- Do NOT repeat any finding or nit already present in PRIOR_FINDINGS or PRIOR_NITS.
+- If the diff clearly resolves a prior finding, add a brief note under Required Actions: "Resolved: [prior finding description]"
+- When issuing your Verdict, consider all unresolved prior findings alongside new ones. A prior CRITICAL or HIGH finding that is not resolved in the diff should still cause FAIL.
+- If DIFF_MODE is incremental, note this briefly at the top of your Findings section so the reader knows they are seeing only new issues.
