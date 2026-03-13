@@ -12,6 +12,7 @@ final class GentleAlarmUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments = ["UITesting"]  // use in-memory SwiftData store; isolates each test
         app.launch()
     }
 
@@ -56,6 +57,13 @@ final class GentleAlarmUITests: XCTestCase {
         cell.swipeLeft()
         app.buttons["Delete"].tap()
 
+        // SwiftUI's list deletion runs a UICollectionView animation; wait for the list
+        // to report zero cells before asserting, so the animation doesn't race the check.
+        let empty = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count == 0"),
+            object: app.cells
+        )
+        XCTWaiter().wait(for: [empty], timeout: 5)
         XCTAssertEqual(app.cells.count, 0)
     }
 

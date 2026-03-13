@@ -13,7 +13,8 @@ struct GentleAlarmApp: App {
 
     let sharedModelContainer: ModelContainer = {
         let schema = Schema([Alarm.self])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let isUITesting = CommandLine.arguments.contains("UITesting")
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: isUITesting)
         do {
             return try ModelContainer(for: schema, configurations: [config])
         } catch {

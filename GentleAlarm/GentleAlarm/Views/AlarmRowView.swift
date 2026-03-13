@@ -12,31 +12,43 @@ struct AlarmRowView: View {
     @Environment(AlarmManager.self) private var alarmManager
 
     let alarm: Alarm
+    var onEditTap: (() -> Void)?
 
     var body: some View {
-        Toggle(isOn: Binding(
-            get: { alarm.isEnabled },
-            set: { newValue in
-                alarm.isEnabled = newValue
-                try? modelContext.save()
-                alarmManager.reschedule()
-            }
-        )) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text(timeString)
-                        .font(.system(size: 48, weight: .thin, design: .default))
-                    Text(amPm)
-                        .font(.title3)
-                        .padding(.bottom, 6)
+        HStack(spacing: 0) {
+            // .borderless gives List-cell-aware button priority over the cell's default tap,
+            // while keeping the Toggle's UISwitch as a separate accessibility element on the right.
+            Button(action: { onEditTap?() }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text(timeString)
+                            .font(.system(size: 48, weight: .thin, design: .default))
+                        Text(amPm)
+                            .font(.title3)
+                            .padding(.bottom, 6)
+                    }
+                    Text(alarm.label)
+                        .font(.subheadline)
+                    Text(alarm.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text(alarm.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.borderless)
+
+            Toggle("", isOn: Binding(
+                get: { alarm.isEnabled },
+                set: { newValue in
+                    alarm.isEnabled = newValue
+                    try? modelContext.save()
+                    alarmManager.reschedule()
+                }
+            ))
+            .labelsHidden()
+            .accessibilityHint("Double-tap to \(alarm.isEnabled ? "disable" : "enable")")
         }
-        .accessibilityLabel("\(timeString) \(amPm), \(alarm.subtitle)")
-        .accessibilityHint("Double-tap to \(alarm.isEnabled ? "disable" : "enable")")
+        .accessibilityElement(children: .contain)
         .opacity(alarm.isEnabled ? 1 : 0.4)
     }
 
