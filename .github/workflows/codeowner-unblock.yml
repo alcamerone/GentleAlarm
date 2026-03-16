@@ -1,0 +1,53 @@
+name: Unblock gate on CODEOWNER approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  actions: write  # needed to re-run failed jobs
+
+jobs:
+  unblock:
+    name: Re-run gate after CODEOWNER approval
+    runs-on: ubuntu-latest
+    # Only act on approvals (not comments or request-changes)
+    if: github.event.review.state == 'approved'
+    steps:
+      - name: Re-run gate if reviewer is a CODEOWNER
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEWER: ${{ github.event.review.user.login }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Verify the reviewer is listed in CODEOWNERS
+          CODEOWNERS=""
+          for co_path in "CODEOWNERS" ".github/CODEOWNERS" "docs/CODEOWNERS"; do
+            CODEOWNERS=$(gh api "repos/$GITHUB_REPOSITORY/contents/$co_path" \
+              --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
+            [ -n "$CODEOWNERS" ] && break
+          done
+
+          if ! echo "$CODEOWNERS" | grep -q "@$REVIEWER"; then
+            echo "@$REVIEWER is not a CODEOWNER — no action taken."
+            exit 0
+          fi
+
+          echo "CODEOWNER @$REVIEWER approved. Looking for a failed gate run to unblock..."
+
+          # Find the most recent "AI PR Review" run for this commit
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD_SHA\" and .name == \"AI PR Review\")] \
+                  | sort_by(.run_number) | last | .id")
+
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No matching workflow run found for commit $HEAD_SHA."
+            exit 0
+          fi
+
+          echo "Re-running failed jobs in run $RUN_ID..."
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/rerun-failed-jobs" \
+            --method POST
+
+          echo "Done. The gate will re-evaluate with the CODEOWNER approval now in place."
