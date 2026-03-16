@@ -145,7 +145,7 @@ final class AlarmManager {
     // MARK: - Nearest alarm query
 
     /// Returns the enabled alarm with the earliest upcoming fire date, accounting for any active snooze.
-    private func nearestPendingAlarm() -> (Alarm, Date)? {
+    func nearestPendingAlarm() -> (Alarm, Date)? {
         let descriptor = FetchDescriptor<Alarm>(
             predicate: #Predicate { $0.isEnabled }
         )
@@ -157,16 +157,17 @@ final class AlarmManager {
         for alarm in alarms {
             let fireDate: Date?
 
-            if alarm.id == snoozeAlarmID, let sd = snoozeFireDate {
-                fireDate = sd
+            if alarm.id == snoozeAlarmID, let snoozeDate = snoozeFireDate {
+                fireDate = snoozeDate
             } else {
                 fireDate = alarm.nextFireDate(after: now)
             }
 
-            guard let fd = fireDate else { continue }
+            guard let nextDate = fireDate else { continue }
 
-            if best == nil || fd < best!.1 {
-                best = (alarm, fd)
+            // map returns nil (not false) when best is nil; ?? true picks the first alarm encountered
+            if best.map({ nextDate < $0.1 }) ?? true {
+                best = (alarm, nextDate)
             }
         }
 

@@ -6,3 +6,6 @@ CLAUDE.local.md
 # Xcode user-specific files
 xcuserdata/
 *.xcuserstate
+
+# Local test result bundles (debugging aid; not for source control)
+TestResults/

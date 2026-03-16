@@ -3,8 +3,8 @@
 //  GentleAlarm
 //
 
-import AVFoundation
 import AudioToolbox
+import AVFoundation
 
 /// Manages two responsibilities:
 ///  1. A silent looping heartbeat that keeps the app process alive in the background.
@@ -19,7 +19,7 @@ final class AudioEngine {
 
     // MARK: - Ramp state
 
-    private var rampTimer:      DispatchSourceTimer?
+    private var rampTimer: DispatchSourceTimer?
     private var vibrationTimer: DispatchSourceTimer?
 
     // MARK: - Init
@@ -51,7 +51,7 @@ final class AudioEngine {
 
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(heartbeatNode, to: engine.mainMixerNode, format: format)
-        engine.connect(alarmNode,     to: engine.mainMixerNode, format: format)
+        engine.connect(alarmNode, to: engine.mainMixerNode, format: format)
 
         // Near-silent, not literally 0 — AVAudioEngine may optimise a true-zero
         // mixer volume away, which would kill background execution.
@@ -77,9 +77,13 @@ final class AudioEngine {
     private func scheduleHeartbeatBuffer() {
         // 5-second silent mono buffer — cheap to generate, cheap to loop.
         let sampleRate: Double = 44100
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            preconditionFailure("AVAudioFormat init failed for standard 44100 Hz mono format")
+        }
         let frameCount = AVAudioFrameCount(sampleRate * 5)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            preconditionFailure("AVAudioPCMBuffer init failed for silent heartbeat buffer")
+        }
         buffer.frameLength = frameCount
         // All PCM samples default to 0.0 — truly silent.
         heartbeatNode.scheduleBuffer(buffer, at: nil, options: .loops)
