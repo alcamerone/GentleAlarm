@@ -29,7 +29,7 @@ struct GentleAlarmApp: App {
     init() {
         // Build the model context first, then hand it to AlarmManager.
         let container = sharedModelContainer
-        let context   = ModelContext(container)
+        let context   = container.mainContext
         let engine    = AudioEngine()
         let manager   = AlarmManager(modelContext: context, audioEngine: engine)
 
@@ -57,6 +57,7 @@ struct GentleAlarmApp: App {
                 alarmManager.appDidBackground()
             case .active:
                 alarmManager.appDidForeground()
+                alarmManager.reschedule()
             default:
                 break
             }

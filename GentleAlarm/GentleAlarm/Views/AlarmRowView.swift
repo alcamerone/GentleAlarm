@@ -16,31 +16,36 @@ struct AlarmRowView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // .borderless gives List-cell-aware button priority over the cell's default tap,
-            // while keeping the Toggle's UISwitch as a separate accessibility element on the right.
-            Button(action: { onEditTap?() }, label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text(timeString)
-                            .font(.system(size: 48, weight: .thin, design: .default))
-                        Text(amPm)
-                            .font(.title3)
-                            .padding(.bottom, 6)
-                    }
-                    Text(alarm.label)
-                        .font(.subheadline)
-                    Text(alarm.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            // Using onTapGesture rather than Button(.borderless) so that the cell's
+            // trailing swipe action is not blocked by the button gesture recognizer.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text(timeString)
+                        .font(.system(size: 48, weight: .thin, design: .default))
+                    Text(amPm)
+                        .font(.title3)
+                        .padding(.bottom, 6)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            })
-            .buttonStyle(.borderless)
+                Text(alarm.label)
+                    .font(.subheadline)
+                Text(alarm.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { onEditTap?() }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("editAlarmCell")
 
             Toggle("", isOn: Binding(
                 get: { alarm.isEnabled },
                 set: { newValue in
                     alarm.isEnabled = newValue
+                    if newValue {
+                        alarm.refreshOneTimeFire()
+                    }
                     try? modelContext.save()
                     alarmManager.reschedule()
                 }

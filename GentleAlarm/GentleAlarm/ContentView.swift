@@ -10,14 +10,15 @@ struct ContentView: View {
     @Environment(AlarmManager.self) private var alarmManager
 
     var body: some View {
+        let activeAlarm = alarmManager.activeAlarm
         NavigationStack {
             AlarmListView()
         }
         .fullScreenCover(isPresented: Binding(
-            get: { alarmManager.activeAlarm != nil },
+            get: { activeAlarm != nil },
             set: { _ in }
         )) {
-            if let alarm = alarmManager.activeAlarm {
+            if let alarm = activeAlarm {
                 ActiveAlarmView(alarm: alarm)
             }
         }

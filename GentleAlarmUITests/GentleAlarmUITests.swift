@@ -32,8 +32,7 @@ final class GentleAlarmUITests: XCTestCase {
     @MainActor
     func testAddAlarmAppearsInList() throws {
         let initialCount = app.cells.count
-        app.buttons["addAlarmButton"].tap()
-        app.buttons["saveAlarmButton"].tap()
+        addAlarm()
         XCTAssertEqual(app.cells.count, initialCount + 1)
     }
 
@@ -49,30 +48,32 @@ final class GentleAlarmUITests: XCTestCase {
 
     @MainActor
     func testDeleteAlarm() throws {
-        // Add an alarm first
-        app.buttons["addAlarmButton"].tap()
-        app.buttons["saveAlarmButton"].tap()
+        addAlarm()
 
-        let cell = app.cells.firstMatch
-        cell.swipeLeft()
-        app.buttons["Delete"].tap()
+        let alarmCell = firstAlarmCell()
+        XCTAssertTrue(alarmCell.waitForExistence(timeout: 2))
+        let countBeforeDelete = app.cells.count
 
-        // SwiftUI's list deletion runs a UICollectionView animation; wait for the list
-        // to report zero cells before asserting, so the animation doesn't race the check.
-        let empty = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "count == 0"),
+        // Full swipe left triggers the destructive delete action directly (allowsFullSwipe: true).
+        let startPoint = alarmCell.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
+        let endPoint = alarmCell.coordinate(withNormalizedOffset: CGVector(dx: -0.5, dy: 0.5))
+        startPoint.press(forDuration: 0, thenDragTo: endPoint)
+
+        // SwiftUI's list deletion runs a UICollectionView animation; wait for the cell
+        // count to drop by one before asserting.
+        let oneRemoved = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count == \(countBeforeDelete - 1)"),
             object: app.cells
         )
-        XCTWaiter().wait(for: [empty], timeout: 5)
-        XCTAssertEqual(app.cells.count, 0)
+        XCTWaiter().wait(for: [oneRemoved], timeout: 5)
+        XCTAssertEqual(app.cells.count, countBeforeDelete - 1)
     }
 
     // MARK: - Toggle
 
     @MainActor
     func testToggleDisablesAlarm() throws {
-        app.buttons["addAlarmButton"].tap()
-        app.buttons["saveAlarmButton"].tap()
+        addAlarm()
 
         let toggle = app.switches.firstMatch
         let initialValue = toggle.value as? String
@@ -86,15 +87,12 @@ final class GentleAlarmUITests: XCTestCase {
 
     @MainActor
     func testEditAlarmLabel() throws {
-        // Add an alarm
-        app.buttons["addAlarmButton"].tap()
-        app.buttons["saveAlarmButton"].tap()
+        addAlarm()
 
-        // Tap the alarm row to open the edit sheet
-        // Tap in the leading portion of the cell (away from the toggle switch on the right)
-        let cell = app.cells.firstMatch
-        let leadingPoint = cell.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
-        leadingPoint.tap()
+        // Tap the alarm row's edit button to open the edit sheet.
+        let editButton = app.buttons["editAlarmCell"]
+        XCTAssertTrue(editButton.waitForExistence(timeout: 2))
+        editButton.tap()
 
         // Change the label
         let labelField = app.textFields["alarmLabelField"]
@@ -138,6 +136,21 @@ final class GentleAlarmUITests: XCTestCase {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }
+    }
+}
+
+// MARK: - Helpers
+
+extension GentleAlarmUITests {
+    /// Adds a default alarm via the add sheet and waits for it to appear in the list.
+    private func addAlarm() {
+        app.buttons["addAlarmButton"].tap()
+        app.buttons["saveAlarmButton"].tap()
+    }
+
+    /// Returns the first alarm list cell (identified by its contained edit button).
+    private func firstAlarmCell() -> XCUIElement {
+        app.cells.containing(.any, identifier: "editAlarmCell").firstMatch
     }
 }
 
