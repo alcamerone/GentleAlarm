@@ -99,6 +99,18 @@ struct AlarmModelTests {
         #expect(alarm.nextFireDate() == explicitDate)
     }
 
+    /// oneTimeFire is in the past but hasFired is false (e.g. app killed before AlarmManager
+    /// could persist the flag). nextFireDate must return that past date so the manager can
+    /// fire the alarm immediately on relaunch.
+    @Test func testNextFireDateReturnsPastOneTimeFireWhenNotYetFired() {
+        let alarm = Alarm(hour: 6, minute: 0)
+        alarm.isEnabled = true
+        alarm.hasFired = false
+        let past = Date().addingTimeInterval(-7200)
+        alarm.oneTimeFire = past
+        #expect(alarm.nextFireDate() == past)
+    }
+
     /// When fire time == reference exactly, the alarm fires now (not tomorrow).
     /// This validates the `>=` fix (previously `>`).
     @Test func testNextFireDateExactReferenceReturnsToday() {
@@ -165,6 +177,20 @@ struct AlarmModelTests {
         let calendar = Calendar.current
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
         #expect(calendar.isDate(result!, inSameDayAs: tomorrow))
+    }
+
+    /// After refreshOneTimeFire() on a fired alarm, nextFireDate() must return a future date.
+    @Test func testRefreshOneTimeFireMakesNextFireDateFuture() {
+        let alarm = Alarm(hour: 23, minute: 59)
+        alarm.isEnabled = true
+        alarm.hasFired = true
+        alarm.oneTimeFire = Date().addingTimeInterval(-86400) // yesterday
+
+        alarm.refreshOneTimeFire()
+
+        let next = alarm.nextFireDate()
+        #expect(next != nil)
+        #expect(next! > Date())
     }
 
     // MARK: - Sound resolution

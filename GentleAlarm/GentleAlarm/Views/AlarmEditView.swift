@@ -150,7 +150,6 @@ struct AlarmEditView: View {
         }() : nil
 
         if let alarm {
-            alarm.isEnabled           = true
             alarm.hasFired            = false
             alarm.hour                = hour
             alarm.minute              = minute

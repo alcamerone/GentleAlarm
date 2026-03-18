@@ -54,10 +54,9 @@ final class GentleAlarmUITests: XCTestCase {
         XCTAssertTrue(alarmCell.waitForExistence(timeout: 2))
         let countBeforeDelete = app.cells.count
 
-        // Full swipe left triggers the destructive delete action directly (allowsFullSwipe: true).
-        let startPoint = alarmCell.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
-        let endPoint = alarmCell.coordinate(withNormalizedOffset: CGVector(dx: -0.5, dy: 0.5))
-        startPoint.press(forDuration: 0, thenDragTo: endPoint)
+        // swipeLeft() triggers the full-swipe delete affordance (allowsFullSwipe: true)
+        // and works reliably across all device widths without coordinate arithmetic.
+        alarmCell.swipeLeft()
 
         // SwiftUI's list deletion runs a UICollectionView animation; wait for the cell
         // count to drop by one before asserting.

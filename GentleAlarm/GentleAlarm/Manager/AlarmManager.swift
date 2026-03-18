@@ -144,7 +144,11 @@ final class AlarmManager {
         snoozeFireDate = nil
 
         alarm.hasFired = true
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            print("AlarmManager: modelContext.save() failed in fire(_:): \(error)")
+        }
 
         NotificationManager.shared.postAlarmNotification(alarm)
 
