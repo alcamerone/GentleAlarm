@@ -82,6 +82,35 @@ struct AlarmModelTests {
         #expect(result == expected)
     }
 
+    /// Alarm marked as hasFired → nextFireDate must return nil (prevents re-fire on relaunch).
+    @Test func testNextFireDateReturnsNilWhenHasFired() {
+        let alarm = Alarm(hour: 8, minute: 0)
+        alarm.isEnabled = true
+        alarm.hasFired = true
+        #expect(alarm.nextFireDate() == nil)
+    }
+
+    /// When oneTimeFire is set, nextFireDate must return that exact date.
+    @Test func testNextFireDateReturnsOneTimeFire() {
+        let alarm = Alarm(hour: 8, minute: 0)
+        alarm.isEnabled = true
+        let explicitDate = Date().addingTimeInterval(3600)
+        alarm.oneTimeFire = explicitDate
+        #expect(alarm.nextFireDate() == explicitDate)
+    }
+
+    /// When fire time == reference exactly, the alarm fires now (not tomorrow).
+    /// This validates the `>=` fix (previously `>`).
+    @Test func testNextFireDateExactReferenceReturnsToday() {
+        var refComps = DateComponents()
+        refComps.year = 2026; refComps.month = 3; refComps.day = 18
+        refComps.hour = 8; refComps.minute = 0; refComps.second = 0
+        let reference = Calendar.current.date(from: refComps)!
+
+        let alarm = Alarm(hour: 8, minute: 0)
+        #expect(alarm.nextFireDate(after: reference) == reference)
+    }
+
     @Test func testNextFireDateRepeatingDelegates() {
         var refComps = DateComponents()
         refComps.year = 2026; refComps.month = 3; refComps.day = 9
@@ -95,6 +124,47 @@ struct AlarmModelTests {
         let fromRepeatDays = alarm.repeatDays.nextFireDate(after: reference, hour: 9, minute: 0)
 
         #expect(fromAlarm == fromRepeatDays)
+    }
+
+    // MARK: - refreshOneTimeFire
+
+    /// For a repeating alarm, refreshOneTimeFire must not reset hasFired or set oneTimeFire.
+    @Test func testRefreshOneTimeFireIsNoOpForRepeatingAlarm() {
+        let alarm = Alarm(hour: 9, minute: 0)
+        alarm.hasFired = true
+        alarm.repeatDays = .weekdays
+        alarm.refreshOneTimeFire()
+        #expect(alarm.hasFired == true)
+        #expect(alarm.oneTimeFire == nil)
+    }
+
+    /// For a one-time alarm whose hour:minute hasn't passed today, oneTimeFire is set to today.
+    @Test func testRefreshOneTimeFireSetsTodayWhenTimeHasNotPassed() {
+        // 23:59 is almost always in the future relative to now.
+        let alarm = Alarm(hour: 23, minute: 59)
+        alarm.hasFired = true
+        alarm.refreshOneTimeFire()
+        #expect(alarm.hasFired == false)
+        let result = alarm.oneTimeFire
+        #expect(result != nil)
+        let calendar = Calendar.current
+        #expect(calendar.component(.hour, from: result!) == 23)
+        #expect(calendar.component(.minute, from: result!) == 59)
+        #expect(calendar.isDateInToday(result!))
+    }
+
+    /// For a one-time alarm whose hour:minute has already passed today, oneTimeFire is set to tomorrow.
+    @Test func testRefreshOneTimeFireSetsTomorrowWhenTimeHasPassed() {
+        // 00:00 midnight is always in the past.
+        let alarm = Alarm(hour: 0, minute: 0)
+        alarm.hasFired = true
+        alarm.refreshOneTimeFire()
+        #expect(alarm.hasFired == false)
+        let result = alarm.oneTimeFire
+        #expect(result != nil)
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        #expect(calendar.isDate(result!, inSameDayAs: tomorrow))
     }
 
     // MARK: - Sound resolution

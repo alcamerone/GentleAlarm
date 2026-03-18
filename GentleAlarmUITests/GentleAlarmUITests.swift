@@ -150,7 +150,7 @@ extension GentleAlarmUITests {
 
     /// Returns the first alarm list cell (identified by its contained edit button).
     private func firstAlarmCell() -> XCUIElement {
-        app.cells.containing(.any, identifier: "editAlarmCell").firstMatch
+        app.cells.containing(.button, identifier: "editAlarmCell").firstMatch
     }
 }
 

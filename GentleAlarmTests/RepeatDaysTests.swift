@@ -84,6 +84,19 @@ struct RepeatDaysTests {
         #expect(result == expected)
     }
 
+    /// Alarm time == reference exactly → returns that date, not next week.
+    /// Validates the `>=` fix (previously `>`).
+    @Test func testNextFireDateExactMatchReturnsToday() {
+        // Monday March 9, 2026 at 8 AM
+        var refComps = DateComponents()
+        refComps.year = 2026; refComps.month = 3; refComps.day = 9
+        refComps.hour = 8; refComps.minute = 0; refComps.second = 0
+        let reference = Calendar.current.date(from: refComps)!
+
+        let result = RepeatDays([.monday]).nextFireDate(after: reference, hour: 8, minute: 0)
+        #expect(result == reference)
+    }
+
     @Test func testNextFireDateEmptyReturnsNil() {
         #expect(RepeatDays([]).nextFireDate(after: Date(), hour: 8, minute: 0) == nil)
     }
