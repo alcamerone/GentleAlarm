@@ -266,16 +266,15 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # 4. ci_checks
-  #    Run SwiftLint and the full test suite on a macOS runner with Xcode.
-  #    Outputs lint_passed and tests_passed for the gate job.
+  # 4. lint
+  #    Run SwiftLint on a macOS runner. Exits 1 on failure so the check run
+  #    conclusion is meaningful (used by codeowner-unblock to assess state).
   # ---------------------------------------------------------------------------
-  ci_checks:
-    name: SwiftLint + tests
+  lint:
+    name: SwiftLint
     runs-on: macos-latest
     outputs:
       lint_passed: ${{ steps.lint.outputs.lint_passed }}
-      tests_passed: ${{ steps.tests.outputs.tests_passed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -286,37 +285,39 @@ jobs:
       - name: Run SwiftLint
         id: lint
         run: |
-          # --strict treats warnings as errors; keeps CI stricter than local dev.
           if swiftlint lint --config .swiftlint.yml --strict; then
             echo "lint_passed=true" >> "$GITHUB_OUTPUT"
           else
             echo "lint_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
+
+  # ---------------------------------------------------------------------------
+  # 5. test_suite
+  #    Run the full Xcode test suite on a macOS runner. Exits 1 on failure so
+  #    the check run conclusion is meaningful (codeowner-unblock reads it).
+  # ---------------------------------------------------------------------------
+  test_suite:
+    name: Test suite
+    runs-on: macos-latest
+    outputs:
+      tests_passed: ${{ steps.tests.outputs.tests_passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Resolve simulator UDID
         id: sim
         run: |
-          # Pick the latest available iPhone simulator at runtime so the
-          # workflow stays valid as Xcode updates ship new simulator runtimes.
           UDID=$(xcrun simctl list devices available -j \
             | jq -r '
-                .devices
-                | to_entries[]
-                | select(.key | test("iOS"))
-                | .value[]
+                .devices | to_entries[]
+                | select(.key | test("iOS")) | .value[]
                 | select(.name | test("iPhone"))
-                | select(.isAvailable == true)
-                | .udid
-              ' \
-            | tail -1)
-
-          if [ -z "$UDID" ]; then
-            echo "No available iPhone simulator found." >&2
-            exit 1
-          fi
-
+                | select(.isAvailable == true) | .udid
+              ' | tail -1)
+          [ -z "$UDID" ] && { echo "No simulator found." >&2; exit 1; }
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $UDID"
 
       - name: Run tests
         id: tests
@@ -330,6 +331,7 @@ jobs:
             echo "tests_passed=true" >> "$GITHUB_OUTPUT"
           else
             echo "tests_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
 
       - name: Upload test results
@@ -341,13 +343,14 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # 5. gate
+  # 6. gate
   #    Required status check. Aggregates results from all previous jobs.
   #    Fails (blocking merge) if any required check did not pass.
+  #    CODEOWNER approval overrides all checks except test failures.
   # ---------------------------------------------------------------------------
   gate:
     name: Gate
-    needs: [ai_review, suggest_tests, ci_checks]
+    needs: [ai_review, suggest_tests, lint, test_suite]
     runs-on: ubuntu-latest
     if: always()  # run even if an upstream job was skipped or failed
     steps:
@@ -355,11 +358,32 @@ jobs:
         env:
           POLICY_PASSED: ${{ needs.ai_review.outputs.policy_passed }}
           RISK_LEVEL: ${{ needs.ai_review.outputs.risk_level }}
-          LINT_PASSED: ${{ needs.ci_checks.outputs.lint_passed }}
-          TESTS_PASSED: ${{ needs.ci_checks.outputs.tests_passed }}
+          LINT_PASSED: ${{ needs.lint.outputs.lint_passed }}
+          TESTS_PASSED: ${{ needs.test_suite.outputs.tests_passed }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # Always compute CODEOWNER_APPROVED
+          CODEOWNERS=""
+          for co_path in "CODEOWNERS" ".github/CODEOWNERS" "docs/CODEOWNERS"; do
+            CODEOWNERS=$(gh api "repos/$GITHUB_REPOSITORY/contents/$co_path" \
+              --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
+            [ -n "$CODEOWNERS" ] && break
+          done
+
+          APPROVERS=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+            --jq '[.[] | select(.state == "APPROVED") | .user.login] | .[]' 2>/dev/null || true)
+
+          CODEOWNER_APPROVED=false
+          if [ -n "$APPROVERS" ] && [ -n "$CODEOWNERS" ]; then
+            while IFS= read -r login; do
+              [ -z "$login" ] && continue
+              if echo "$CODEOWNERS" | grep -q "@$login"; then
+                CODEOWNER_APPROVED=true; break
+              fi
+            done <<< "$APPROVERS"
+          fi
+
           echo "╔══════════════════════════════╗"
           echo "║         Gate Summary         ║"
           echo "╠══════════════════════════════╣"
@@ -367,8 +391,21 @@ jobs:
           printf "║  Risk level    : %-12s║\n" "$RISK_LEVEL"
           printf "║  SwiftLint     : %-12s║\n" "$LINT_PASSED"
           printf "║  Tests         : %-12s║\n" "$TESTS_PASSED"
+          printf "║  CODEOWNER     : %-12s║\n" "$CODEOWNER_APPROVED"
           echo "╚══════════════════════════════╝"
 
+          # CODEOWNER approval overrides all checks except test failures
+          if [ "$CODEOWNER_APPROVED" = "true" ]; then
+            if [ "$TESTS_PASSED" = "true" ]; then
+              echo "✅ CODEOWNER approved and tests pass — PR is clear to merge."
+              exit 0
+            else
+              echo "❌ CODEOWNER approved but tests failed — fix failing tests before merging."
+              exit 1
+            fi
+          fi
+
+          # No CODEOWNER approval — apply all checks
           FAILED=0
 
           if [ "$POLICY_PASSED" != "true" ]; then
@@ -376,39 +413,9 @@ jobs:
             FAILED=1
           fi
 
-          # HIGH risk requires CODEOWNER sign-off. Check if any approved reviewer
-          # is listed in the CODEOWNERS file; if so, the gate passes.
           if [ "$RISK_LEVEL" = "HIGH" ]; then
-            # Fetch CODEOWNERS from common locations via API (no checkout needed)
-            CODEOWNERS=""
-            for co_path in "CODEOWNERS" ".github/CODEOWNERS" "docs/CODEOWNERS"; do
-              CODEOWNERS=$(gh api "repos/$GITHUB_REPOSITORY/contents/$co_path" \
-                --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
-              [ -n "$CODEOWNERS" ] && break
-            done
-
-            # Fetch logins of everyone who has APPROVED this PR
-            APPROVERS=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-              --jq '[.[] | select(.state == "APPROVED") | .user.login] | .[]' \
-              2>/dev/null || true)
-
-            CODEOWNER_APPROVED=false
-            if [ -n "$APPROVERS" ] && [ -n "$CODEOWNERS" ]; then
-              while IFS= read -r login; do
-                [ -z "$login" ] && continue
-                if echo "$CODEOWNERS" | grep -q "@$login"; then
-                  CODEOWNER_APPROVED=true
-                  break
-                fi
-              done <<< "$APPROVERS"
-            fi
-
-            if [ "$CODEOWNER_APPROVED" = "true" ]; then
-              echo "✅ High-risk changes — approved by CODEOWNER."
-            else
-              echo "❌ High-risk changes detected — CODEOWNER approval required before merge."
-              FAILED=1
-            fi
+            echo "❌ High-risk changes detected — CODEOWNER approval required before merge."
+            FAILED=1
           fi
 
           if [ "$LINT_PASSED" != "true" ]; then
