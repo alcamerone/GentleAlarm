@@ -43,6 +43,7 @@ final class AlarmManager {
     func appDidBackground() {
         if nearestPendingAlarm() != nil {
             audioEngine.startHeartbeat()
+            reschedule()
         }
     }
 

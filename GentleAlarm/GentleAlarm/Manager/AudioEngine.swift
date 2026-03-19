@@ -22,11 +22,18 @@ final class AudioEngine {
     private var rampTimer: DispatchSourceTimer?
     private var vibrationTimer: DispatchSourceTimer?
 
+    // MARK: - Notification observers
+
+    private var interruptionObserver: NSObjectProtocol?
+    private var routeChangeObserver: NSObjectProtocol?
+    private var mediaServerResetObserver: NSObjectProtocol?
+
     // MARK: - Init
 
     init() {
         configureSession()
         buildGraph()
+        registerNotificationObservers()
     }
 
     // MARK: - Session
@@ -64,11 +71,11 @@ final class AudioEngine {
     func startHeartbeat() {
         guard !engine.isRunning else { return }
 
-        scheduleHeartbeatBuffer()
-
         do {
             try engine.start()
+            scheduleHeartbeatBuffer()
             heartbeatNode.play()
+            print("AudioEngine: heartbeat started")
         } catch {
             print("AudioEngine: engine start failed: \(error)")
         }
@@ -175,6 +182,80 @@ final class AudioEngine {
         }
         timer.resume()
         vibrationTimer = timer
+    }
+
+    // MARK: - Audio session resilience
+
+    private func registerNotificationObservers() {
+        let session = AVAudioSession.sharedInstance()
+
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: session, queue: nil
+        ) { [weak self] notification in self?.handleInterruption(notification: notification) }
+
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: session, queue: nil
+        ) { [weak self] notification in self?.handleRouteChange(notification: notification) }
+
+        mediaServerResetObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: session, queue: nil
+        ) { [weak self] _ in self?.handleMediaServerReset() }
+    }
+
+    private func handleInterruption(notification: Notification) {
+        guard
+            let userInfo = notification.userInfo,
+            let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+        else { return }
+
+        switch type {
+        case .began:
+            // AVAudioEngine stops itself on interruption; nothing to do.
+            print("AudioEngine: audio session interrupted — heartbeat paused")
+        case .ended:
+            guard
+                let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
+                AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
+            else {
+                print("AudioEngine: interruption ended but shouldResume not set — heartbeat NOT restarted")
+                return
+            }
+            print("AudioEngine: interruption ended — restarting heartbeat")
+            // Re-activate the session, then restart the engine and heartbeat.
+            configureSession()
+            startHeartbeat()
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleRouteChange(notification: Notification) {
+        guard
+            let userInfo = notification.userInfo,
+            let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+            AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable
+        else { return }
+
+        if !engine.isRunning {
+            print("AudioEngine: audio route changed (device unavailable) — restarting heartbeat")
+            startHeartbeat()
+        }
+    }
+
+    private func handleMediaServerReset() {
+        // All AVAudio* objects are invalid after a media server crash. Rebuild from scratch.
+        print("AudioEngine: media server reset — rebuilding audio graph and restarting heartbeat")
+        rampTimer?.cancel()
+        rampTimer = nil
+        vibrationTimer?.cancel()
+        vibrationTimer = nil
+        configureSession()
+        buildGraph()
+        startHeartbeat()
     }
 
     // MARK: - Stop
