@@ -334,6 +334,22 @@ jobs:
             exit 1
           fi
 
+      - name: Log test failures
+        if: always()
+        run: |
+          if [ ! -f xcodebuild.log ]; then
+            echo "xcodebuild.log not found — nothing to summarize."
+            exit 0
+          fi
+
+          echo "=== Failed Tests ==="
+          grep -E "Test Case '.*' failed" xcodebuild.log || echo "(none)"
+
+          echo ""
+          echo "=== Test Summary ==="
+          grep -E "\*\* TEST (FAILED|SUCCEEDED) \*\*|Executed [0-9]+ test" xcodebuild.log \
+            | tail -5 || echo "(summary line not found)"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
