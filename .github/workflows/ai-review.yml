@@ -346,7 +346,7 @@ jobs:
           fi
 
           echo "=== Failed Tests ==="
-          grep -E "Test Case '.*' failed" xcodebuild.log || echo "(none)"
+          grep -iE "Test [Cc]ase '.*' failed" xcodebuild.log || echo "(none)"
 
           echo ""
           echo "=== Test Summary ==="
