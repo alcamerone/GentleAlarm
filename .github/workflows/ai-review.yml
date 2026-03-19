@@ -322,12 +322,15 @@ jobs:
       - name: Run tests
         id: tests
         run: |
-          set -o pipefail
-          if xcodebuild test \
+          xcodebuild test \
             -scheme GentleAlarm \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
-            2>&1 | tee xcodebuild.log; then
+            > xcodebuild.log 2>&1 || true
+
+          # xcodebuild can exit non-zero even when tests pass (e.g. result bundle
+          # finalisation issues), so derive pass/fail from the log output instead.
+          if grep -q "^\*\* TEST SUCCEEDED \*\*" xcodebuild.log; then
             echo "tests_passed=true" >> "$GITHUB_OUTPUT"
           else
             echo "tests_passed=false" >> "$GITHUB_OUTPUT"
@@ -347,8 +350,16 @@ jobs:
 
           echo ""
           echo "=== Test Summary ==="
-          grep -E "\*\* TEST (FAILED|SUCCEEDED) \*\*|Executed [0-9]+ test" xcodebuild.log \
+          grep -E "\*\* (TEST|BUILD) (FAILED|SUCCEEDED) \*\*|Executed [0-9]+ test" xcodebuild.log \
             | tail -5 || echo "(summary line not found)"
+
+          echo ""
+          echo "=== Errors / Warnings ==="
+          grep -E "^.+: (error|warning):" xcodebuild.log | head -20 || echo "(none)"
+
+          echo ""
+          echo "=== Last 20 lines of build log ==="
+          tail -20 xcodebuild.log
 
       - name: Upload test results
         if: always()
