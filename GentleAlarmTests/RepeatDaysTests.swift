@@ -84,6 +84,37 @@ struct RepeatDaysTests {
         #expect(result == expected)
     }
 
+    /// Alarm time == reference exactly → returns that date, not next week.
+    /// Validates the `>=` fix (previously `>`).
+    @Test func testNextFireDateExactMatchReturnsToday() {
+        // Monday March 9, 2026 at 8 AM
+        var refComps = DateComponents()
+        refComps.year = 2026; refComps.month = 3; refComps.day = 9
+        refComps.hour = 8; refComps.minute = 0; refComps.second = 0
+        let reference = Calendar.current.date(from: refComps)!
+
+        let result = RepeatDays([.monday]).nextFireDate(after: reference, hour: 8, minute: 0)
+        #expect(result == reference)
+    }
+
+    /// Today (Monday) is not in a Wednesday-only set — must advance to Wednesday, not return today.
+    /// Confirms the `>=` fix didn't break the "skip to next matching day" path.
+    @Test func testNextFireDateSkipsToNextMatchingDay() {
+        // Monday March 9, 2026 at 8 AM — Wednesday-only alarm
+        var refComps = DateComponents()
+        refComps.year = 2026; refComps.month = 3; refComps.day = 9
+        refComps.hour = 8; refComps.minute = 0; refComps.second = 0
+        let reference = Calendar.current.date(from: refComps)!
+
+        let result = RepeatDays([.wednesday]).nextFireDate(after: reference, hour: 8, minute: 0)
+
+        var expComps = DateComponents()
+        expComps.year = 2026; expComps.month = 3; expComps.day = 11
+        expComps.hour = 8; expComps.minute = 0; expComps.second = 0
+        let expected = Calendar.current.date(from: expComps)!
+        #expect(result == expected)
+    }
+
     @Test func testNextFireDateEmptyReturnsNil() {
         #expect(RepeatDays([]).nextFireDate(after: Date(), hour: 8, minute: 0) == nil)
     }

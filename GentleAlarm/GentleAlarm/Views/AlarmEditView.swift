@@ -133,7 +133,24 @@ struct AlarmEditView: View {
         let hour   = calendar.component(.hour, from: selectedTime)
         let minute = calendar.component(.minute, from: selectedTime)
 
+        // For one-time alarms, build an explicit fire date anchored to the real current
+        // date rather than the date inside selectedTime. The DatePicker can normalise a
+        // past initialisation value to tomorrow, so extracting year/month/day from
+        // selectedTime can silently produce the wrong calendar day. Using Date() ensures
+        // we always get today-or-tomorrow based on whether the chosen time has passed.
+        let oneTimeFire: Date? = repeatDays.isEmpty ? {
+            let now = Date()
+            var components = calendar.dateComponents([.year, .month, .day], from: now)
+            components.hour   = hour
+            components.minute = minute
+            components.second = 0
+            guard let today = calendar.date(from: components) else { return nil }
+            if today >= now { return today }
+            return calendar.date(byAdding: .day, value: 1, to: today)
+        }() : nil
+
         if let alarm {
+            alarm.hasFired            = false
             alarm.hour                = hour
             alarm.minute              = minute
             alarm.label               = label
@@ -143,6 +160,7 @@ struct AlarmEditView: View {
             alarm.snoozeEnabled       = snoozeEnabled
             alarm.vibrationEnabled    = vibrationEnabled
             alarm.soundEnabled        = soundEnabled
+            alarm.oneTimeFire         = oneTimeFire
         } else {
             let newAlarm = Alarm(hour: hour, minute: minute)
             newAlarm.label               = label
@@ -152,6 +170,7 @@ struct AlarmEditView: View {
             newAlarm.snoozeEnabled       = snoozeEnabled
             newAlarm.vibrationEnabled    = vibrationEnabled
             newAlarm.soundEnabled        = soundEnabled
+            newAlarm.oneTimeFire         = oneTimeFire
             modelContext.insert(newAlarm)
         }
 
