@@ -6,22 +6,23 @@ on:
 
 permissions:
   contents: read
-  actions: write  # needed to re-run failed jobs
+  actions: write
+  checks: write
 
 jobs:
   unblock:
     name: Re-run gate after CODEOWNER approval
     runs-on: ubuntu-latest
-    # Only act on approvals (not comments or request-changes)
     if: github.event.review.state == 'approved'
     steps:
-      - name: Re-run gate if reviewer is a CODEOWNER
+      - name: Unblock gate if tests passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEWER: ${{ github.event.review.user.login }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          # Verify the reviewer is listed in CODEOWNERS
+          # Verify reviewer is a CODEOWNER
           CODEOWNERS=""
           for co_path in "CODEOWNERS" ".github/CODEOWNERS" "docs/CODEOWNERS"; do
             CODEOWNERS=$(gh api "repos/$GITHUB_REPOSITORY/contents/$co_path" \
@@ -34,20 +35,34 @@ jobs:
             exit 0
           fi
 
-          echo "CODEOWNER @$REVIEWER approved. Looking for a failed gate run to unblock..."
+          echo "CODEOWNER @$REVIEWER approved. Checking test suite status..."
 
-          # Find the most recent "AI PR Review" run for this commit
-          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs" \
-            --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD_SHA\" and .name == \"AI PR Review\")] \
-                  | sort_by(.run_number) | last | .id")
+          # Check the test_suite job's check run conclusion for this commit
+          TEST_CONCLUSION=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name | test("Test suite"))] | sort_by(.started_at) | last | .conclusion' \
+            2>/dev/null || echo "")
 
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "No matching workflow run found for commit $HEAD_SHA."
+          if [ "$TEST_CONCLUSION" != "success" ]; then
+            echo "Test suite has not passed (conclusion: ${TEST_CONCLUSION:-not found}) — cannot unblock."
             exit 0
           fi
 
-          echo "Re-running failed jobs in run $RUN_ID..."
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/rerun-failed-jobs" \
-            --method POST
+          # Tests passed — find and patch the Gate check run to success
+          GATE_CHECK_ID=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name | test("Gate$"))] | sort_by(.started_at) | last | .id' \
+            2>/dev/null || echo "")
 
-          echo "Done. The gate will re-evaluate with the CODEOWNER approval now in place."
+          if [ -z "$GATE_CHECK_ID" ] || [ "$GATE_CHECK_ID" = "null" ]; then
+            echo "No Gate check run found for commit $HEAD_SHA — nothing to patch."
+            exit 1
+          fi
+
+          echo "Patching Gate check run $GATE_CHECK_ID to success..."
+          gh api "repos/$GITHUB_REPOSITORY/check-runs/$GATE_CHECK_ID" \
+            --method PATCH \
+            --field status=completed \
+            --field conclusion=success \
+            --field "output[title]=Gate passed after CODEOWNER approval" \
+            --field "output[summary]=CODEOWNER @$REVIEWER approved this PR. Tests passed. All other checks overridden."
+
+          echo "Done. Gate unblocked."

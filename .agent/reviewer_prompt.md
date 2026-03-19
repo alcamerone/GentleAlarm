@@ -37,7 +37,7 @@ Produce your review in exactly this structure, in markdown:
 | `filename.swift` | 12–18 | 🔴 CRITICAL / 🟠 HIGH / 🟡 MEDIUM / 🔵 LOW / ⚪ NIT | Description |
 
 ### Required Actions
-<!-- Merge blockers only. Each item must reference a specific policy check ID and finding. -->
+<!-- Merge blockers only. Each item must reference a specific policy check and finding. Use a natural-language description of the relevant policy, not the ID. -->
 <!-- If none, write "None." -->
 - ...
 
