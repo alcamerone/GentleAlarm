@@ -54,9 +54,13 @@ final class GentleAlarmUITests: XCTestCase {
         XCTAssertTrue(alarmCell.waitForExistence(timeout: 2))
         let countBeforeDelete = app.cells.count
 
-        // swipeLeft() triggers the full-swipe delete affordance (allowsFullSwipe: true)
-        // and works reliably across all device widths without coordinate arithmetic.
+        // swipeLeft() reveals the trailing swipe-action buttons.
         alarmCell.swipeLeft()
+
+        // Tap the Delete button that appears after the swipe.
+        let deleteButton = app.buttons["deleteAlarmButton"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 2))
+        deleteButton.tap()
 
         // SwiftUI's list deletion runs a UICollectionView animation; wait for the cell
         // count to drop by one before asserting.
