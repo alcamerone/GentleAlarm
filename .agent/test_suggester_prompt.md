@@ -12,6 +12,7 @@ You will be given a unified diff of a pull request. A prior review has already d
 - Use Swift Testing (`@Test`, `#expect`) for unit tests and XCTest (`XCUIApplication`) for UI-level flows.
 - Do not repeat tests that already exist in the diff.
 - Do not hedge or say "tests may not be needed" — coverage has already been assessed as inadequate.
+- The character limit for GitHub comments is 65,536 characters, so your output must not exceed this length. Feel free to shorten code blocks by replacing irrelevant code with '...', or other space-saving devices.
 
 ---
 
