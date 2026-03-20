@@ -48,6 +48,14 @@ struct NotificationManagerTests {
         #expect(manager is UNUserNotificationCenterDelegate)
     }
 
+    // Verify NotificationScheduling conformance is intact and callable via the protocol type.
+    // The AlarmManager dependency-injection path uses NotificationManager.shared as
+    // `any NotificationScheduling`; this ensures that binding still compiles and runs.
+    @Test func testConformsToNotificationSchedulingProtocol() {
+        let nm: any NotificationScheduling = NotificationManager.shared
+        nm.cancelAllNotifications()  // must not crash
+    }
+
     // MARK: - Scheduling / cancellation smoke tests
 
     @Test func testRealScheduleNotificationDoesNotCrash() {

@@ -49,6 +49,25 @@ struct AudioEngineTests {
         #expect(!engine.sessionIsExclusive)
     }
 
+    @Test func testStopAlarmClearsActiveAlarmParamsSoInterruptionResumesHeartbeat() {
+        let engine = AudioEngine()
+        engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
+        engine.stopAlarm()
+        // After stopAlarm, activeAlarmParams must be nil. An interruption-ended
+        // notification should therefore take the heartbeat path (mixing mode),
+        // not resume the alarm (exclusive mode).
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+        ]
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: userInfo
+        )
+        #expect(!engine.sessionIsExclusive)
+        engine.stopHeartbeat()
+    }
+
     // MARK: - Heartbeat engine state
 
     @Test func testStartHeartbeatRunsEngine() {
@@ -87,13 +106,14 @@ struct AudioEngineTests {
         #expect(engine.sessionIsExclusive)
 
         // Simulate a media server reset; the observer calls configureSession() (mixing)
-        // then startHeartbeat(), leaving sessionIsExclusive = false.
+        // then startHeartbeat(), leaving sessionIsExclusive = false and engine running.
         NotificationCenter.default.post(
             name: AVAudioSession.mediaServicesWereResetNotification,
             object: AVAudioSession.sharedInstance()
         )
 
         #expect(!engine.sessionIsExclusive)
+        #expect(engine.isRunning)
         engine.stopHeartbeat()
     }
 
