@@ -57,7 +57,8 @@ struct AudioEngineTests {
         // notification should therefore take the heartbeat path (mixing mode),
         // not resume the alarm (exclusive mode).
         let userInfo: [AnyHashable: Any] = [
-            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
         ]
         NotificationCenter.default.post(
             name: AVAudioSession.interruptionNotification,
@@ -126,7 +127,8 @@ struct AudioEngineTests {
         // Simulate interruption ended while alarm was playing; the handler should
         // resume the alarm (not just the heartbeat), keeping the session exclusive.
         let userInfo: [AnyHashable: Any] = [
-            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
         ]
         NotificationCenter.default.post(
             name: AVAudioSession.interruptionNotification,
@@ -145,7 +147,8 @@ struct AudioEngineTests {
         #expect(!engine.sessionIsExclusive)
 
         let userInfo: [AnyHashable: Any] = [
-            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
         ]
         NotificationCenter.default.post(
             name: AVAudioSession.interruptionNotification,
@@ -153,6 +156,23 @@ struct AudioEngineTests {
             userInfo: userInfo
         )
 
+        #expect(!engine.sessionIsExclusive)
+        engine.stopHeartbeat()
+    }
+
+    @Test func testInterruptionEndedWithoutShouldResumeIsIgnored() {
+        let engine = AudioEngine()
+        engine.startHeartbeat()
+        // Post .ended without shouldResume — handler must not restart audio.
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+        ]
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: userInfo
+        )
+        // Engine was running before the notification — state must be unchanged.
         #expect(!engine.sessionIsExclusive)
         engine.stopHeartbeat()
     }
@@ -207,6 +227,16 @@ struct AudioEngineTests {
         )
         // Only .oldDeviceUnavailable triggers a restart — engine must remain stopped.
         #expect(!engine.isRunning)
+    }
+
+    @Test func testStartAlarmSetsExclusiveModeEvenIfEngineAlreadyRunning() {
+        let engine = AudioEngine()
+        engine.startHeartbeat()
+        #expect(!engine.sessionIsExclusive)
+        // Engine is already running; startAlarm must still switch to exclusive mode.
+        engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
+        #expect(engine.sessionIsExclusive)
+        engine.stopAlarm()
     }
 
     // MARK: - Stability / no-crash guarantees
