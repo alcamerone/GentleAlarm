@@ -22,6 +22,11 @@ final class AudioEngine {
     private var rampTimer: DispatchSourceTimer?
     private var vibrationTimer: DispatchSourceTimer?
 
+    // MARK: - Testability
+
+    /// True while the session is in exclusive (non-mixing) mode. Exposed for unit tests only.
+    private(set) var sessionIsExclusive: Bool = false
+
     // MARK: - Notification observers
 
     private var interruptionObserver: NSObjectProtocol?
@@ -38,13 +43,18 @@ final class AudioEngine {
 
     // MARK: - Session
 
-    private func configureSession() {
+    private func configureSession(exclusive: Bool = false) {
         let session = AVAudioSession.sharedInstance()
         do {
-            // .playback keeps the process alive when backgrounded.
-            // Do NOT add .mixWithOthers — alarm needs exclusive audio focus.
-            try session.setCategory(.playback, options: [])
+            // During heartbeat-only mode, mix with others so YouTube and other audio
+            // apps never trigger an interruption. An interruption stops AVAudioEngine,
+            // causing the app to lose background audio protection and get jetsam-killed.
+            // Exclusive mode is only needed when the alarm is actively firing — at that
+            // point we want to interrupt other audio so the user clearly hears the alarm.
+            let options: AVAudioSession.CategoryOptions = exclusive ? [] : [.mixWithOthers]
+            try session.setCategory(.playback, options: options)
             try session.setActive(true)
+            sessionIsExclusive = exclusive
         } catch {
             print("AudioEngine: session setup failed: \(error)")
         }
@@ -72,6 +82,9 @@ final class AudioEngine {
         guard !engine.isRunning else { return }
 
         do {
+            // Stop the node before scheduling to avoid stacking looping buffers
+            // across multiple startHeartbeat() calls (e.g. after interruption cycles).
+            heartbeatNode.stop()
             try engine.start()
             scheduleHeartbeatBuffer()
             heartbeatNode.play()
@@ -104,6 +117,8 @@ final class AudioEngine {
 
     /// Begin playing `alarm.soundName` with a volume ramp over `alarm.rampDurationSeconds`.
     func startAlarm(soundName: String, rampDurationSeconds: Int, vibrate: Bool) {
+        // Switch to exclusive mode so the alarm interrupts YouTube / other audio.
+        configureSession(exclusive: true)
         if !engine.isRunning { startHeartbeat() }
 
         // Restore full mixer volume for audible playback.
@@ -217,16 +232,10 @@ final class AudioEngine {
             // AVAudioEngine stops itself on interruption; nothing to do.
             print("AudioEngine: audio session interrupted — heartbeat paused")
         case .ended:
-            guard
-                let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
-                AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
-            else {
-                print("AudioEngine: interruption ended but shouldResume not set — heartbeat NOT restarted")
-                return
-            }
+            // With .mixWithOthers, most interruptions (YouTube etc.) never reach this path.
+            // This handles edge cases like phone calls or Siri that interrupt even mixing sessions.
             print("AudioEngine: interruption ended — restarting heartbeat")
-            // Re-activate the session, then restart the engine and heartbeat.
-            configureSession()
+            configureSession()  // defaults to mixing mode
             startHeartbeat()
         @unknown default:
             break
@@ -272,5 +281,9 @@ final class AudioEngine {
 
         // Drop mixer volume back to near-silent for the heartbeat.
         engine.mainMixerNode.outputVolume = 0.0001
+
+        // Return to mixing mode so the heartbeat won't interrupt other audio
+        // while waiting for the next alarm.
+        configureSession(exclusive: false)
     }
 }
