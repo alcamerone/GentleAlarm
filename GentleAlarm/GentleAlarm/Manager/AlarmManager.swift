@@ -32,7 +32,8 @@ final class AlarmManager {
 
     // MARK: - Init
 
-    init(modelContext: ModelContext, audioEngine: AudioEngine, notificationScheduler: (any NotificationScheduling)? = nil) {
+    init(modelContext: ModelContext, audioEngine: AudioEngine,
+         notificationScheduler: (any NotificationScheduling)? = nil) {
         self.modelContext         = modelContext
         self.audioEngine          = audioEngine
         self.notificationScheduler = notificationScheduler ?? NotificationManager.shared
