@@ -19,9 +19,9 @@ final class AudioEngine {
 
     // MARK: - Engine / nodes
 
-    private let engine = AVAudioEngine()
-    private let heartbeatNode = AVAudioPlayerNode()
-    private let alarmNode     = AVAudioPlayerNode()
+    private var engine = AVAudioEngine()
+    private var heartbeatNode = AVAudioPlayerNode()
+    private var alarmNode     = AVAudioPlayerNode()
 
     // MARK: - Ramp state
 
@@ -283,6 +283,10 @@ private extension AudioEngine {
         case .ended:
             // With .mixWithOthers, most interruptions (YouTube etc.) never reach this path.
             // This handles edge cases like phone calls or Siri that interrupt even mixing sessions.
+            guard
+                let opts = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
+                AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
+            else { return }
             if let params = activeAlarmParams {
                 // Alarm was ringing when interrupted — resume it rather than just the heartbeat.
                 print("AudioEngine: interruption ended — resuming alarm")
@@ -319,6 +323,10 @@ private extension AudioEngine {
         rampTimer = nil
         vibrationTimer?.cancel()
         vibrationTimer = nil
+        // Replace the stale engine and nodes — they are invalid after a media server crash.
+        engine = AVAudioEngine()
+        heartbeatNode = AVAudioPlayerNode()
+        alarmNode = AVAudioPlayerNode()
         configureSession()
         buildGraph()
         startHeartbeat()
