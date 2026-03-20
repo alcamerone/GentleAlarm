@@ -70,7 +70,7 @@ struct RepeatDays: Codable, Sendable {
             components.minute = minute
             components.second = 0
             guard let fireDate = calendar.date(from: components) else { continue }
-            if fireDate > reference { return fireDate }
+            if fireDate >= reference { return fireDate }
         }
         return nil
     }

@@ -19,22 +19,24 @@ struct AlarmListView: View {
 
     var body: some View {
         List {
-            ForEach(alarms) { alarm in
-                AlarmRowView(alarm: alarm) {
-                    editingAlarm = alarm
+            Section {
+                ForEach(alarms) { alarm in
+                    AlarmRowView(alarm: alarm) {
+                        editingAlarm = alarm
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            deleteAlarm(alarm)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .accessibilityIdentifier("deleteAlarmButton")
+                    }
                 }
-            }
-            .onDelete(perform: deleteAlarms)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if let next = nextAlarmSummary {
-                Text(next)
+            } header: {
+                Text(nextAlarmSummary)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 6)
-                    .background(.bar)
+                    .textCase(nil)
             }
         }
         .navigationTitle("Alarms")
@@ -59,24 +61,21 @@ struct AlarmListView: View {
 
     // MARK: - Helpers
 
-    private var nextAlarmSummary: String? {
+    private var nextAlarmSummary: String {
         guard let date = alarms
             .filter(\.isEnabled)
             .compactMap({ $0.nextFireDate() })
             .min()
-        else { return nil }
+        else { return "No alarms set" }
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return "Next alarm \(formatter.localizedString(for: date, relativeTo: Date()))"
     }
 
-    private func deleteAlarms(at offsets: IndexSet) {
-        for index in offsets {
-            let alarm = alarms[index]
-            NotificationManager.shared.cancelNotification(for: alarm)
-            modelContext.delete(alarm)
-        }
+    private func deleteAlarm(_ alarm: Alarm) {
+        NotificationManager.shared.cancelNotification(for: alarm)
+        modelContext.delete(alarm)
         try? modelContext.save()
         alarmManager.reschedule()
     }

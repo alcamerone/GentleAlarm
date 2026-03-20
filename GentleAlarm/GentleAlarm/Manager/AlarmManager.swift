@@ -93,6 +93,10 @@ final class AlarmManager {
         schedulingTimer?.cancel()
         schedulingTimer = nil
 
+        // An alarm is already ringing — don't schedule another tick.
+        // snooze() and dismiss() will call reschedule() when the user responds.
+        guard activeAlarm == nil else { return }
+
         guard let (_, fireDate) = nearestPendingAlarm() else { return }
 
         let secondsUntil = fireDate.timeIntervalSinceNow
@@ -106,9 +110,12 @@ final class AlarmManager {
         // Coarse check when the alarm is far away; fine check within 2 minutes.
         let delay: DispatchTimeInterval = secondsUntil > 120 ? .seconds(60) : .seconds(1)
 
+        // Background queue so the timer fires even while backgrounded (the heartbeat
+        // audio keeps the process alive). tick() is dispatched to main so all
+        // SwiftData access and @Observable mutations stay on the correct thread.
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
         timer.schedule(deadline: .now() + delay, repeating: .never)
-        timer.setEventHandler { [weak self] in self?.tick() }
+        timer.setEventHandler { [weak self] in DispatchQueue.main.async { self?.tick() } }
         timer.resume()
         schedulingTimer = timer
     }
@@ -118,14 +125,30 @@ final class AlarmManager {
 
         if fireDate.timeIntervalSinceNow <= 0 {
             fire(alarm)
+            // Reschedule so any other pending alarms still get a timer. The
+            // fired alarm is no longer returned by nearestPendingAlarm() for
+            // one-time alarms (nextFireDate returns nil for past-due one-time
+            // alarms) and returns a future occurrence for repeating ones.
+            scheduleNextCheck()
         } else {
             scheduleNextCheck()
         }
     }
 
     private func fire(_ alarm: Alarm) {
+        // Prevent re-firing while the same alarm is already active (e.g. while the
+        // user hasn't dismissed yet and scheduleNextCheck keeps ticking past oneTimeFire).
+        guard activeAlarm?.id != alarm.id else { return }
+
         snoozeAlarmID  = nil
         snoozeFireDate = nil
+
+        alarm.hasFired = true
+        do {
+            try modelContext.save()
+        } catch {
+            print("AlarmManager: modelContext.save() failed in fire(_:): \(error)")
+        }
 
         NotificationManager.shared.postAlarmNotification(alarm)
 
@@ -149,7 +172,13 @@ final class AlarmManager {
         let descriptor = FetchDescriptor<Alarm>(
             predicate: #Predicate { $0.isEnabled }
         )
-        guard let alarms = try? modelContext.fetch(descriptor) else { return nil }
+        let alarms: [Alarm]
+        do {
+            alarms = try modelContext.fetch(descriptor)
+        } catch {
+            print("AlarmManager: modelContext.fetch failed: \(error)")
+            return nil
+        }
 
         let now = Date()
         var best: (Alarm, Date)?

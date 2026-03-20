@@ -75,11 +75,9 @@ final class AudioEngine {
     }
 
     private func scheduleHeartbeatBuffer() {
-        // 5-second silent mono buffer — cheap to generate, cheap to loop.
-        let sampleRate: Double = 44100
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
-            preconditionFailure("AVAudioFormat init failed for standard 44100 Hz mono format")
-        }
+        // Use the node's actual output format so the channel count matches the connection.
+        let format = heartbeatNode.outputFormat(forBus: 0)
+        let sampleRate = format.sampleRate
         let frameCount = AVAudioFrameCount(sampleRate * 5)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             preconditionFailure("AVAudioPCMBuffer init failed for silent heartbeat buffer")
