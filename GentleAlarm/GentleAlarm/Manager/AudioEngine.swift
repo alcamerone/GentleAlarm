@@ -41,6 +41,12 @@ final class AudioEngine {
         registerNotificationObservers()
     }
 
+    deinit {
+        [interruptionObserver, routeChangeObserver, mediaServerResetObserver]
+            .compactMap { $0 }
+            .forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
     // MARK: - Session
 
     private func configureSession(exclusive: Bool = false) {

@@ -22,7 +22,7 @@ final class AlarmManager {
 
     let audioEngine: AudioEngine
     private let modelContext: ModelContext
-    var notificationScheduler: any NotificationScheduling = NotificationManager.shared
+    private var notificationScheduler: any NotificationScheduling
 
     // MARK: - Scheduling state
 
@@ -32,9 +32,10 @@ final class AlarmManager {
 
     // MARK: - Init
 
-    init(modelContext: ModelContext, audioEngine: AudioEngine) {
-        self.modelContext = modelContext
-        self.audioEngine  = audioEngine
+    init(modelContext: ModelContext, audioEngine: AudioEngine, notificationScheduler: (any NotificationScheduling)? = nil) {
+        self.modelContext         = modelContext
+        self.audioEngine          = audioEngine
+        self.notificationScheduler = notificationScheduler ?? NotificationManager.shared
     }
 
     // MARK: - App lifecycle
@@ -57,7 +58,11 @@ final class AlarmManager {
     // MARK: - Public scheduling API
 
     /// Recalculate and reschedule after any alarm list change (add / edit / delete / toggle).
+    /// No-op while an alarm is actively ringing — cancelling the pre-scheduled notification
+    /// mid-ring would disrupt the lock-screen UI; snooze()/dismiss() handle rescheduling
+    /// once the user responds.
     func reschedule() {
+        guard activeAlarm == nil else { return }
         scheduleNextCheck()
         refreshNotifications()
     }

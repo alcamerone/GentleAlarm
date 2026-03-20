@@ -25,9 +25,8 @@ struct AlarmManagerTests {
         let container = try ModelContainer(for: Alarm.self, configurations: config)
         let context = ModelContext(container)
         let engine = AudioEngine()
-        let manager = AlarmManager(modelContext: context, audioEngine: engine)
         let spy = SpyNotificationScheduler()
-        manager.notificationScheduler = spy
+        let manager = AlarmManager(modelContext: context, audioEngine: engine, notificationScheduler: spy)
         return (manager, context, spy)
     }
 
@@ -214,20 +213,89 @@ struct AlarmManagerTests {
 
     @Test @MainActor func testRefreshNotificationsNotCalledFromFire() throws {
         let (manager, context, spy) = try makeManager()
-        // Create an alarm set to fire in the past so tick() → fire() is triggered.
-        // We use a future alarm (1 hour away) first to call reschedule(), recording
-        // exactly one schedule call, then confirm fire() doesn't add a second one.
+        // One-time alarm set 1 second in the past: scheduleNextCheck() will call tick()
+        // immediately (past-due path), which calls fire(). fire() must NOT invoke
+        // refreshNotifications(). The only spy activity should come from reschedule()'s
+        // own refreshNotifications() call.
+        let alarm = Alarm(hour: 9, minute: 0)
+        alarm.oneTimeFire = Date().addingTimeInterval(-1)
+        context.insert(alarm)
+
+        manager.reschedule()
+
+        // Exactly one cancelAll — from reschedule()'s refreshNotifications(), not fire().
+        #expect(spy.cancelAllCount == 1)
+        // The alarm has now fired (hasFired=true, one-time), so nearestPendingAlarm()
+        // returns nil and no follow-up notification is scheduled.
+        #expect(spy.scheduled.isEmpty)
+    }
+
+    @Test @MainActor func testRescheduleIsNoOpWhenActiveAlarmRinging() throws {
+        let (manager, context, spy) = try makeManager()
+        let alarm = Alarm(hour: 7, minute: 0)
+        context.insert(alarm)
+        manager.activeAlarm = alarm   // simulate an alarm actively ringing
+        manager.reschedule()
+        // The guard at the top of reschedule() should short-circuit before
+        // refreshNotifications() is reached.
+        #expect(spy.cancelAllCount == 0)
+        #expect(spy.scheduled.isEmpty)
+    }
+
+    @Test @MainActor func testAppDidBackgroundWithPendingAlarmSchedulesNotification() throws {
+        let (manager, context, spy) = try makeManager()
         let now = Date()
         let alarm = Alarm(
             hour: Calendar.current.component(.hour, from: now.addingTimeInterval(3600)),
             minute: Calendar.current.component(.minute, from: now.addingTimeInterval(3600))
         )
         context.insert(alarm)
-        manager.reschedule()
-        // reschedule() should produce exactly 1 cancelAll + 1 schedule
+        manager.appDidBackground()
         #expect(spy.cancelAllCount == 1)
         #expect(spy.scheduled.count == 1)
-        // fire() is not called here (alarm is in the future), so no extra schedule call is triggered.
-        // This confirms fire() itself doesn't invoke refreshNotifications().
+        #expect(spy.scheduled[0].0.id == alarm.id)
+    }
+
+    @Test func testAppDidBackgroundWithNoAlarmsDoesNotSchedule() throws {
+        let (manager, _, spy) = try makeManager()
+        manager.appDidBackground()
+        // No pending alarm → the if-guard in appDidBackground() is false,
+        // reschedule() is never called.
+        #expect(spy.cancelAllCount == 0)
+        #expect(spy.scheduled.isEmpty)
+    }
+
+    @Test func testRescheduleWithMultipleAlarmsSchedulesOnlyNearest() throws {
+        let (manager, context, spy) = try makeManager()
+        let now = Date()
+        let nearerAlarm = Alarm(
+            hour: Calendar.current.component(.hour, from: now.addingTimeInterval(1800)),
+            minute: Calendar.current.component(.minute, from: now.addingTimeInterval(1800))
+        )
+        let fartherAlarm = Alarm(
+            hour: Calendar.current.component(.hour, from: now.addingTimeInterval(7200)),
+            minute: Calendar.current.component(.minute, from: now.addingTimeInterval(7200))
+        )
+        context.insert(nearerAlarm)
+        context.insert(fartherAlarm)
+        manager.reschedule()
+        #expect(spy.scheduled.count == 1)
+        #expect(spy.scheduled[0].0.id == nearerAlarm.id)
+    }
+
+    @Test func testReschedulePassesCorrectFireDateToScheduler() throws {
+        let (manager, context, spy) = try makeManager()
+        let now = Date()
+        let expectedFireDate = now.addingTimeInterval(3600)
+        let alarm = Alarm(
+            hour: Calendar.current.component(.hour, from: expectedFireDate),
+            minute: Calendar.current.component(.minute, from: expectedFireDate)
+        )
+        context.insert(alarm)
+        manager.reschedule()
+        #expect(spy.scheduled.count == 1)
+        // Allow ±60 s for calendar rounding (hour:minute has no seconds component).
+        let actualFireDate = spy.scheduled[0].1
+        #expect(abs(actualFireDate.timeIntervalSince(expectedFireDate)) < 60)
     }
 }

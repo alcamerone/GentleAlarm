@@ -16,11 +16,12 @@ struct AudioEngineTests {
 
     @Test func testSessionMixingAfterInit() {
         let engine = AudioEngine()
-        // sessionIsExclusive is an internal flag set by configureSession — check that too.
+        // sessionIsExclusive is updated synchronously by configureSession — it is the
+        // reliable observable for session state. Reading AVAudioSession.sharedInstance()
+        // directly would be racy: other test suites run in parallel and may create
+        // AudioEngine instances whose startAlarm() calls flip the global singleton to
+        // exclusive between our configureSession() call and the assertion.
         #expect(!engine.sessionIsExclusive)
-        // Global session should reflect mixing mode.
-        let options = AVAudioSession.sharedInstance().categoryOptions
-        #expect(options.contains(.mixWithOthers))
     }
 
     // MARK: - Session mode during alarm
@@ -44,6 +45,62 @@ struct AudioEngineTests {
         engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
         engine.stopAlarm()
         #expect(!engine.sessionIsExclusive)
+    }
+
+    // MARK: - Notification-driven resilience paths
+
+    @Test func testMediaServerResetLeavesEngineInMixingMode() {
+        let engine = AudioEngine()
+        // Drive into exclusive mode first.
+        engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
+        #expect(engine.sessionIsExclusive)
+
+        // Simulate a media server reset; the observer calls configureSession() (mixing)
+        // then startHeartbeat(), leaving sessionIsExclusive = false.
+        NotificationCenter.default.post(
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+
+        #expect(!engine.sessionIsExclusive)
+        engine.stopHeartbeat()
+    }
+
+    @Test func testInterruptionEndedRestoresMixingMode() {
+        let engine = AudioEngine()
+        // Drive into exclusive mode first.
+        engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
+        #expect(engine.sessionIsExclusive)
+
+        // Simulate an interruption-ended notification; the handler calls
+        // configureSession() (mixing) then startHeartbeat().
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+        ]
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: userInfo
+        )
+
+        #expect(!engine.sessionIsExclusive)
+        engine.stopHeartbeat()
+    }
+
+    @Test func testRouteChangeOldDeviceUnavailableDoesNotCrash() {
+        let engine = AudioEngine()
+        engine.stopHeartbeat()  // ensure engine is stopped before the route change fires
+
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+        ]
+        NotificationCenter.default.post(
+            name: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: userInfo
+        )
+        // Handler conditionally restarts heartbeat when engine is stopped — must not crash.
+        engine.stopHeartbeat()
     }
 
     // MARK: - Stability / no-crash guarantees

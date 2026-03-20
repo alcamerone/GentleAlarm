@@ -13,8 +13,8 @@
 // What IS testable here:
 //   • NotificationManager.shared initializes without crashing.
 //   • onSnooze and onDismiss accept (and can be cleared) without crashing.
-//   • willPresent returns the expected presentation options — verified indirectly
-//     by calling the delegate method directly.
+//   • Delegate conformance.
+//   • scheduleNotification(for:at:) and cancelAllNotifications() smoke tests.
 
 import Testing
 import UserNotifications
@@ -36,22 +36,34 @@ struct NotificationManagerTests {
         manager.onDismiss = nil
     }
 
-    // MARK: - willPresent options
+    // MARK: - Delegate conformance
 
-    // UNNotification cannot be constructed in unit tests (no public init), so we
-    // call the delegate method via a nil-coerced value. On iOS 17+ the method
-    // signature receives a non-optional, so we skip if we can't build one.
+    // UNNotification cannot be constructed in unit tests (no public init), so the
+    // willPresent and didReceive paths cannot be exercised directly. Coverage of
+    // those paths is deferred to UI / integration tests.
     //
-    // Coverage of the .banner + .sound path is deferred to UI / integration tests.
-    @Test func testWillPresentReturnsBannerAndSound() {
-        // Document the limitation — this path requires a live UNNotification instance
-        // which has no public initializer. The implementation is a single-line
-        // completionHandler([.banner, .sound]) that is straightforward to verify by
-        // code review. Tracked for integration-test coverage.
-        //
-        // What we CAN assert: the manager conforms to UNUserNotificationCenterDelegate.
+    // What we CAN assert: the manager conforms to UNUserNotificationCenterDelegate.
+    @Test func testConformsToUNUserNotificationCenterDelegate() {
         let manager = NotificationManager.shared
-        let isDelegate = manager is UNUserNotificationCenterDelegate
-        #expect(isDelegate)
+        #expect(manager is UNUserNotificationCenterDelegate)
+    }
+
+    // MARK: - Scheduling / cancellation smoke tests
+
+    @Test func testRealScheduleNotificationDoesNotCrash() {
+        let manager = NotificationManager.shared
+        let alarm = Alarm(hour: 8, minute: 0)
+        // Scheduling may silently fail without notification permission (the error
+        // is only printed); the call must not throw or crash.
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(60))
+        // Paired cancel so this doesn't pollute the notification centre.
+        manager.cancelAllNotifications()
+    }
+
+    @Test func testCancelAllNotificationsDoesNotCrash() {
+        let manager = NotificationManager.shared
+        let alarm = Alarm(hour: 8, minute: 0)
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(120))
+        manager.cancelAllNotifications()  // must not crash; clears the request we just added
     }
 }
