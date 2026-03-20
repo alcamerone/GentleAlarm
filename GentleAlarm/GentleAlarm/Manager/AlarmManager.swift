@@ -22,7 +22,7 @@ final class AlarmManager {
 
     let audioEngine: AudioEngine
     private let modelContext: ModelContext
-    private var notificationScheduler: any NotificationScheduling
+    private let notificationScheduler: any NotificationScheduling
 
     // MARK: - Scheduling state
 

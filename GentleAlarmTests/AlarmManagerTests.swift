@@ -213,10 +213,12 @@ struct AlarmManagerTests {
 
     @Test @MainActor func testRefreshNotificationsNotCalledFromFire() throws {
         let (manager, context, spy) = try makeManager()
-        // One-time alarm set 1 second in the past: scheduleNextCheck() will call tick()
-        // immediately (past-due path), which calls fire(). fire() must NOT invoke
-        // refreshNotifications(). The only spy activity should come from reschedule()'s
-        // own refreshNotifications() call.
+        // One-time alarm set 1 second in the past: scheduleNextCheck() calls tick()
+        // *directly* (no timer) on the past-due path, which synchronously calls fire().
+        // fire() must NOT invoke refreshNotifications(). The only spy activity comes
+        // from reschedule()'s own refreshNotifications() call.
+        // Note: the past-due path in scheduleNextCheck() is `if secondsUntil <= 0 { tick(); return }`
+        // — no DispatchSourceTimer is involved, so execution is fully synchronous on @MainActor.
         let alarm = Alarm(hour: 9, minute: 0)
         alarm.oneTimeFire = Date().addingTimeInterval(-1)
         context.insert(alarm)
@@ -261,6 +263,20 @@ struct AlarmManagerTests {
         manager.appDidBackground()
         // No pending alarm → the if-guard in appDidBackground() is false,
         // reschedule() is never called.
+        #expect(spy.cancelAllCount == 0)
+        #expect(spy.scheduled.isEmpty)
+    }
+
+    @Test @MainActor func testAppDidBackgroundWithActiveAlarmDoesNotReschedule() throws {
+        let (manager, context, spy) = try makeManager()
+        let alarm = Alarm(hour: 7, minute: 0)
+        context.insert(alarm)
+        manager.activeAlarm = alarm  // alarm is actively ringing
+
+        manager.appDidBackground()
+
+        // reschedule() is called from appDidBackground() but its guard
+        // (guard activeAlarm == nil) exits early — no notifications touched.
         #expect(spy.cancelAllCount == 0)
         #expect(spy.scheduled.isEmpty)
     }

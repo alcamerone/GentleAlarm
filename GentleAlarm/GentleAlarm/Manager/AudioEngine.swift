@@ -27,6 +27,14 @@ final class AudioEngine {
     /// True while the session is in exclusive (non-mixing) mode. Exposed for unit tests only.
     private(set) var sessionIsExclusive: Bool = false
 
+    /// True while the AVAudioEngine is running. Exposed for unit tests only.
+    var isRunning: Bool { engine.isRunning }
+
+    // MARK: - Active alarm tracking (for interruption resume)
+
+    /// Non-nil while an alarm is actively playing; used to re-start alarm on interruption end.
+    private var activeAlarmParams: (soundName: String, rampDurationSeconds: Int, vibrate: Bool)?
+
     // MARK: - Notification observers
 
     private var interruptionObserver: NSObjectProtocol?
@@ -123,6 +131,7 @@ final class AudioEngine {
 
     /// Begin playing `alarm.soundName` with a volume ramp over `alarm.rampDurationSeconds`.
     func startAlarm(soundName: String, rampDurationSeconds: Int, vibrate: Bool) {
+        activeAlarmParams = (soundName: soundName, rampDurationSeconds: rampDurationSeconds, vibrate: vibrate)
         // Switch to exclusive mode so the alarm interrupts YouTube / other audio.
         configureSession(exclusive: true)
         if !engine.isRunning { startHeartbeat() }
@@ -240,9 +249,15 @@ final class AudioEngine {
         case .ended:
             // With .mixWithOthers, most interruptions (YouTube etc.) never reach this path.
             // This handles edge cases like phone calls or Siri that interrupt even mixing sessions.
-            print("AudioEngine: interruption ended — restarting heartbeat")
-            configureSession()  // defaults to mixing mode
-            startHeartbeat()
+            if let params = activeAlarmParams {
+                // Alarm was ringing when interrupted — resume it rather than just the heartbeat.
+                print("AudioEngine: interruption ended — resuming alarm")
+                startAlarm(soundName: params.soundName, rampDurationSeconds: params.rampDurationSeconds, vibrate: params.vibrate)
+            } else {
+                print("AudioEngine: interruption ended — restarting heartbeat")
+                configureSession()  // defaults to mixing mode
+                startHeartbeat()
+            }
         @unknown default:
             break
         }
@@ -284,6 +299,7 @@ final class AudioEngine {
         vibrationTimer = nil
 
         alarmNode.stop()
+        activeAlarmParams = nil
 
         // Drop mixer volume back to near-silent for the heartbeat.
         engine.mainMixerNode.outputVolume = 0.0001
