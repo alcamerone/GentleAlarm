@@ -120,6 +120,7 @@ Omit the Summary and Risk Level sections — they were already posted when the P
 - A HIGH risk level always produces a FAIL verdict.
 - Be specific: reference filenames and line numbers in findings wherever possible.
 - Do not invent findings that are not supported by the diff.
+- The character limit for GitHub comments is 65,536 characters, so your output must be within this limit.
 
 ---
 
