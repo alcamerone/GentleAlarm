@@ -281,6 +281,64 @@ struct AlarmManagerTests {
         #expect(spy.scheduled.isEmpty)
     }
 
+    // MARK: - Snooze/dismiss interaction
+
+    /// appDidBackground() must recognise a snoozed alarm as a pending alarm and schedule the
+    /// snooze fire date (≈9 min), NOT the alarm's original time (2 h away).
+    @Test @MainActor func testAppDidBackgroundWithSnoozedAlarmSchedulesSnoozeDateNotOriginalTime() throws {
+        let (manager, context, spy) = try makeManager()
+        let now = Date()
+        // Alarm 2 hours from now.
+        let alarm = Alarm(
+            hour: Calendar.current.component(.hour, from: now.addingTimeInterval(7200)),
+            minute: Calendar.current.component(.minute, from: now.addingTimeInterval(7200))
+        )
+        context.insert(alarm)
+        manager.activeAlarm = alarm
+        manager.snooze()  // sets snoozeFireDate ≈ 9 min; also calls reschedule() internally
+
+        // Reset spy state so only appDidBackground()'s activity is measured.
+        spy.cancelAllCount = 0
+        spy.scheduled = []
+
+        manager.appDidBackground()
+
+        #expect(spy.cancelAllCount == 1)
+        #expect(spy.scheduled.count == 1)
+        // Scheduled date must be ~9 minutes away (the snooze date), not ~2 hours away.
+        let scheduledDate = spy.scheduled[0].1
+        #expect(scheduledDate.timeIntervalSinceNow < 10 * 60)
+    }
+
+    /// dismiss() clears snooze state. For a repeating alarm, the next scheduled notification
+    /// must use the regular repeat date (hours away), not the old snooze date (minutes away).
+    @Test @MainActor func testDismissAfterSnoozeReschedulesRegularRepeatDateNotSnoozedDate() throws {
+        let (manager, context, spy) = try makeManager()
+        let now = Date()
+        let alarm = Alarm(
+            hour: Calendar.current.component(.hour, from: now.addingTimeInterval(7200)),
+            minute: Calendar.current.component(.minute, from: now.addingTimeInterval(7200))
+        )
+        alarm.repeatDays = .weekdays
+        context.insert(alarm)
+
+        // Snooze — snoozeFireDate is now ≈9 min from now.
+        manager.activeAlarm = alarm
+        manager.snooze()
+
+        let snoozeDate = spy.scheduled.last!.1
+        #expect(snoozeDate.timeIntervalSinceNow < 10 * 60)  // confirm snooze was scheduled
+
+        // Simulate alarm re-firing after the snooze period, then dismiss.
+        manager.activeAlarm = alarm
+        manager.dismiss()
+
+        // dismiss() must clear snoozeFireDate. The rescheduled notification should now
+        // use the alarm's normal next fire date (≥ 1 h from now), not the snooze date.
+        let regularDate = spy.scheduled.last!.1
+        #expect(regularDate.timeIntervalSinceNow > 60 * 60)
+    }
+
     @Test func testRescheduleWithMultipleAlarmsSchedulesOnlyNearest() throws {
         let (manager, context, spy) = try makeManager()
         let now = Date()
