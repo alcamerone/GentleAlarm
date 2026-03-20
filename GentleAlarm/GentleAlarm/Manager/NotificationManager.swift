@@ -14,6 +14,18 @@ protocol NotificationScheduling: AnyObject {
     func cancelAllNotifications()
 }
 
+/// Abstracts `UNUserNotificationCenter` so `NotificationManager` can be tested
+/// without hitting the real notification system.
+protocol UNUserNotificationCenterProtocol: AnyObject {
+    func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: ((Error?) -> Void)?)
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func removeAllPendingNotificationRequests()
+    func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
+    func requestAuthorization(options: UNAuthorizationOptions, completionHandler: @escaping (Bool, Error?) -> Void)
+}
+
+extension UNUserNotificationCenter: UNUserNotificationCenterProtocol {}
+
 /// Handles local notification scheduling and user action callbacks (lock-screen snooze/dismiss).
 ///
 /// Notifications serve as a lock-screen UI and background fallback — the primary alarm
@@ -26,11 +38,20 @@ final class NotificationManager: NSObject, NotificationScheduling {
     var onSnooze: (() -> Void)?
     var onDismiss: (() -> Void)?
 
-    private let center = UNUserNotificationCenter.current()
+    let center: any UNUserNotificationCenterProtocol
 
     private override init() {
+        let realCenter = UNUserNotificationCenter.current()
+        self.center = realCenter
         super.init()
-        center.delegate = self
+        realCenter.delegate = self
+        registerCategories()
+    }
+
+    /// For testing only — injects a spy instead of the real UNUserNotificationCenter.
+    init(center: any UNUserNotificationCenterProtocol) {
+        self.center = center
+        super.init()
         registerCategories()
     }
 

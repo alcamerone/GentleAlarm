@@ -14,11 +14,31 @@
 //   • NotificationManager.shared initializes without crashing.
 //   • onSnooze and onDismiss accept (and can be cleared) without crashing.
 //   • Delegate conformance.
-//   • scheduleNotification(for:at:) and cancelAllNotifications() smoke tests.
+//   • scheduleNotification(for:at:) content — identifier, interruption level,
+//     sound attachment — verified via SpyUNCenter injection.
+//   • cancelAllNotifications() delegation to the underlying center.
 
 import Testing
 import UserNotifications
 @testable import GentleAlarm
+
+// MARK: - Spy
+
+private final class SpyUNCenter: UNUserNotificationCenterProtocol {
+    var addedRequests: [UNNotificationRequest] = []
+    var removedAllCount = 0
+
+    func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: ((Error?) -> Void)?) {
+        addedRequests.append(request)
+        completionHandler?(nil)
+    }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
+    func removeAllPendingNotificationRequests() { removedAllCount += 1 }
+    func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {}
+    func requestAuthorization(options: UNAuthorizationOptions, completionHandler: @escaping (Bool, Error?) -> Void) {}
+}
+
+// MARK: - Tests
 
 struct NotificationManagerTests {
 
@@ -56,7 +76,54 @@ struct NotificationManagerTests {
         nm.cancelAllNotifications()  // must not crash
     }
 
-    // MARK: - Scheduling / cancellation smoke tests
+    // MARK: - scheduleNotification content (injected spy)
+
+    @Test func testScheduleNotificationUsesAlarmIDAsIdentifier() {
+        let spy = SpyUNCenter()
+        let manager = NotificationManager(center: spy)
+        let alarm = Alarm(hour: 8, minute: 30)
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(3600))
+        #expect(spy.addedRequests.count == 1)
+        #expect(spy.addedRequests[0].identifier == alarm.id.uuidString)
+    }
+
+    @Test func testScheduleNotificationSetsTimeSensitiveInterruptionLevel() {
+        let spy = SpyUNCenter()
+        let manager = NotificationManager(center: spy)
+        let alarm = Alarm(hour: 8, minute: 0)
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(3600))
+        #expect(spy.addedRequests.count == 1)
+        #expect(spy.addedRequests[0].content.interruptionLevel == .timeSensitive)
+    }
+
+    @Test func testScheduleNotificationAttachesSoundWhenSoundEnabled() {
+        let spy = SpyUNCenter()
+        let manager = NotificationManager(center: spy)
+        let alarm = Alarm(hour: 8, minute: 0)
+        alarm.soundEnabled = true
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(3600))
+        #expect(spy.addedRequests.count == 1)
+        #expect(spy.addedRequests[0].content.sound != nil)
+    }
+
+    @Test func testScheduleNotificationOmitsSoundWhenSoundDisabled() {
+        let spy = SpyUNCenter()
+        let manager = NotificationManager(center: spy)
+        let alarm = Alarm(hour: 8, minute: 0)
+        alarm.soundEnabled = false
+        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(3600))
+        #expect(spy.addedRequests.count == 1)
+        #expect(spy.addedRequests[0].content.sound == nil)
+    }
+
+    @Test func testCancelAllNotificationsDelegatesToCenter() {
+        let spy = SpyUNCenter()
+        let manager = NotificationManager(center: spy)
+        manager.cancelAllNotifications()
+        #expect(spy.removedAllCount == 1)
+    }
+
+    // MARK: - Scheduling / cancellation smoke tests (real center)
 
     @Test func testRealScheduleNotificationDoesNotCrash() {
         let manager = NotificationManager.shared
