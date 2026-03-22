@@ -37,6 +37,9 @@ struct AudioEngineTests {
 
     @Test func testSessionExclusiveAfterStartAlarm() {
         let engine = AudioEngine()
+        // Empty sound name is intentional: configureSession(exclusive:true) runs before
+        // loadAndPlayAlarmSound, so sessionIsExclusive is set regardless of the sound file.
+        // Using "" avoids a dependency on a real .caf file in the test bundle.
         engine.startAlarm(soundName: "", rampDurationSeconds: 0, vibrate: false)
         #expect(engine.sessionIsExclusive)
         engine.stopAlarm()
@@ -196,7 +199,7 @@ struct AudioEngineTests {
         engine.stopHeartbeat()
     }
 
-    @Test func testRouteChangeOldDeviceUnavailableDoesNotCrash() {
+    @Test func testRouteChangeOldDeviceUnavailableRestartsHeartbeat() {
         let engine = AudioEngine()
         engine.stopHeartbeat()  // ensure engine is stopped before the route change fires
 

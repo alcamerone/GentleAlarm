@@ -225,6 +225,10 @@ struct AlarmManagerTests {
 
         manager.reschedule()
 
+        // Verify the alarm actually fired synchronously via the fast path. If this
+        // assertion fails it means the fast-path changed (e.g. to an async timer) and
+        // the rest of the test would no longer be validating the intended invariant.
+        #expect(alarm.hasFired)
         // Exactly one cancelAll — from reschedule()'s refreshNotifications(), not fire().
         #expect(spy.cancelAllCount == 1)
         // The alarm has now fired (hasFired=true, one-time), so nearestPendingAlarm()
