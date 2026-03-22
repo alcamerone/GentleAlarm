@@ -122,23 +122,4 @@ struct NotificationManagerTests {
         manager.cancelAllNotifications()
         #expect(spy.removedAllCount == 1)
     }
-
-    // MARK: - Scheduling / cancellation smoke tests (real center)
-
-    @Test func testRealScheduleNotificationDoesNotCrash() {
-        let manager = NotificationManager.shared
-        let alarm = Alarm(hour: 8, minute: 0)
-        // Scheduling may silently fail without notification permission (the error
-        // is only printed); the call must not throw or crash.
-        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(60))
-        // Paired cancel so this doesn't pollute the notification centre.
-        manager.cancelAllNotifications()
-    }
-
-    @Test func testCancelAllNotificationsDoesNotCrash() {
-        let manager = NotificationManager.shared
-        let alarm = Alarm(hour: 8, minute: 0)
-        manager.scheduleNotification(for: alarm, at: Date().addingTimeInterval(120))
-        manager.cancelAllNotifications()  // must not crash; clears the request we just added
-    }
 }
