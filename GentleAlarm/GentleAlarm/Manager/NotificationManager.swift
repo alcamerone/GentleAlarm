@@ -9,23 +9,49 @@ private let alarmCategoryID = "ALARM_CATEGORY"
 private let snoozeActionID  = "SNOOZE_ACTION"
 private let dismissActionID = "DISMISS_ACTION"
 
+protocol NotificationScheduling: AnyObject {
+    func scheduleNotification(for alarm: Alarm, at fireDate: Date)
+    func cancelAllNotifications()
+}
+
+/// Abstracts `UNUserNotificationCenter` so `NotificationManager` can be tested
+/// without hitting the real notification system.
+protocol UNUserNotificationCenterProtocol: AnyObject {
+    func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: ((Error?) -> Void)?)
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func removeAllPendingNotificationRequests()
+    func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
+    func requestAuthorization(options: UNAuthorizationOptions, completionHandler: @escaping (Bool, Error?) -> Void)
+}
+
+extension UNUserNotificationCenter: UNUserNotificationCenterProtocol {}
+
 /// Handles local notification scheduling and user action callbacks (lock-screen snooze/dismiss).
 ///
 /// Notifications serve as a lock-screen UI and background fallback — the primary alarm
 /// is fired by AlarmManager's timer. Set `onSnooze` and `onDismiss` before any
 /// notifications are delivered (done in GentleAlarmApp, step 6).
-final class NotificationManager: NSObject {
+final class NotificationManager: NSObject, NotificationScheduling {
 
     static let shared = NotificationManager()
 
     var onSnooze: (() -> Void)?
     var onDismiss: (() -> Void)?
 
-    private let center = UNUserNotificationCenter.current()
+    let center: any UNUserNotificationCenterProtocol
 
     private override init() {
+        let realCenter = UNUserNotificationCenter.current()
+        self.center = realCenter
         super.init()
-        center.delegate = self
+        realCenter.delegate = self
+        registerCategories()
+    }
+
+    /// For testing only — injects a spy instead of the real UNUserNotificationCenter.
+    init(center: any UNUserNotificationCenterProtocol) {
+        self.center = center
+        super.init()
         registerCategories()
     }
 
@@ -33,7 +59,7 @@ final class NotificationManager: NSObject {
 
     func requestPermission() {
         // Permission denial is surfaced via the system permission prompt; no in-app gating needed
-        center.requestAuthorization(options: [.alert, .sound]) { _, error in
+        center.requestAuthorization(options: [.alert, .sound, .timeSensitive]) { _, error in
             if let error {
                 print("NotificationManager: permission request failed: \(error)")
             }
@@ -42,22 +68,22 @@ final class NotificationManager: NSObject {
 
     // MARK: - Schedule / cancel
 
-    /// Post a notification that fires at the alarm's next fire date.
-    /// The notification is cancelled and re-posted whenever the alarm is rescheduled.
-    func postAlarmNotification(_ alarm: Alarm) {
-        guard let fireDate = alarm.nextFireDate() else { return }
-
+    /// Pre-schedule a notification at a known fire date.
+    /// Call this whenever an alarm is saved/edited/toggled so the system can deliver
+    /// the lock-screen notification at exactly the right moment — before hasFired is set.
+    func scheduleNotification(for alarm: Alarm, at fireDate: Date) {
         let content = UNMutableNotificationContent()
-        content.title       = alarm.label
-        content.body        = alarm.timeString
+        content.title = alarm.label
+        content.body = alarm.timeString
         content.categoryIdentifier = alarmCategoryID
+        content.interruptionLevel = .timeSensitive  // bypasses Focus modes
 
         if alarm.soundEnabled {
-            let soundName = UNNotificationSoundName(rawValue: alarm.sound.filename)
-            content.sound = UNNotificationSound(named: soundName)
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: alarm.sound.filename))
         }
 
-        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireDate)
+        let components = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second], from: fireDate)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: alarm.id.uuidString, content: content, trigger: trigger)
 

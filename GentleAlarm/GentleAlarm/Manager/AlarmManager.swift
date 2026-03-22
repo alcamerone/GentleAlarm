@@ -22,6 +22,7 @@ final class AlarmManager {
 
     let audioEngine: AudioEngine
     private let modelContext: ModelContext
+    private let notificationScheduler: any NotificationScheduling
 
     // MARK: - Scheduling state
 
@@ -31,9 +32,11 @@ final class AlarmManager {
 
     // MARK: - Init
 
-    init(modelContext: ModelContext, audioEngine: AudioEngine) {
-        self.modelContext = modelContext
-        self.audioEngine  = audioEngine
+    init(modelContext: ModelContext, audioEngine: AudioEngine,
+         notificationScheduler: (any NotificationScheduling)? = nil) {
+        self.modelContext         = modelContext
+        self.audioEngine          = audioEngine
+        self.notificationScheduler = notificationScheduler ?? NotificationManager.shared
     }
 
     // MARK: - App lifecycle
@@ -43,6 +46,7 @@ final class AlarmManager {
     func appDidBackground() {
         if nearestPendingAlarm() != nil {
             audioEngine.startHeartbeat()
+            reschedule()
         }
     }
 
@@ -55,8 +59,13 @@ final class AlarmManager {
     // MARK: - Public scheduling API
 
     /// Recalculate and reschedule after any alarm list change (add / edit / delete / toggle).
+    /// No-op while an alarm is actively ringing — cancelling the pre-scheduled notification
+    /// mid-ring would disrupt the lock-screen UI; snooze()/dismiss() handle rescheduling
+    /// once the user responds.
     func reschedule() {
+        guard activeAlarm == nil else { return }
         scheduleNextCheck()
+        refreshNotifications()
     }
 
     // MARK: - Fire / Snooze / Dismiss
@@ -68,6 +77,7 @@ final class AlarmManager {
         snoozeFireDate  = Date().addingTimeInterval(snoozeDuration)
         setActiveAlarm(nil)
         scheduleNextCheck()
+        refreshNotifications()
     }
 
     func dismiss() {
@@ -85,9 +95,16 @@ final class AlarmManager {
 
         setActiveAlarm(nil)
         scheduleNextCheck()
+        refreshNotifications()
     }
 
     // MARK: - Private scheduling
+
+    private func refreshNotifications() {
+        notificationScheduler.cancelAllNotifications()
+        guard let (alarm, fireDate) = nearestPendingAlarm() else { return }
+        notificationScheduler.scheduleNotification(for: alarm, at: fireDate)
+    }
 
     private func scheduleNextCheck() {
         schedulingTimer?.cancel()
@@ -150,7 +167,7 @@ final class AlarmManager {
             print("AlarmManager: modelContext.save() failed in fire(_:): \(error)")
         }
 
-        NotificationManager.shared.postAlarmNotification(alarm)
+        // Notification was already pre-scheduled by reschedule(); nothing to do here.
 
         if alarm.soundEnabled {
             audioEngine.startAlarm(

@@ -6,6 +6,12 @@
 import AudioToolbox
 import AVFoundation
 
+private struct AlarmParams {
+    let soundName: String
+    let rampDurationSeconds: Int
+    let vibrate: Bool
+}
+
 /// Manages two responsibilities:
 ///  1. A silent looping heartbeat that keeps the app process alive in the background.
 ///  2. Alarm playback with a configurable volume ramp and optional vibration.
@@ -13,31 +19,62 @@ final class AudioEngine {
 
     // MARK: - Engine / nodes
 
-    private let engine = AVAudioEngine()
-    private let heartbeatNode = AVAudioPlayerNode()
-    private let alarmNode     = AVAudioPlayerNode()
+    private var engine = AVAudioEngine()
+    private var heartbeatNode = AVAudioPlayerNode()
+    private var alarmNode     = AVAudioPlayerNode()
 
     // MARK: - Ramp state
 
     private var rampTimer: DispatchSourceTimer?
     private var vibrationTimer: DispatchSourceTimer?
 
+    // MARK: - Testability
+
+    /// True while the session is in exclusive (non-mixing) mode. Exposed for unit tests only.
+    private(set) var sessionIsExclusive: Bool = false
+
+    /// True while the AVAudioEngine is running. Exposed for unit tests only.
+    var isRunning: Bool { engine.isRunning }
+
+    // MARK: - Active alarm tracking (for interruption resume)
+
+    /// Non-nil while an alarm is actively playing; used to re-start alarm on interruption end.
+    private var activeAlarmParams: AlarmParams?
+
+    // MARK: - Notification observers
+
+    private var interruptionObserver: NSObjectProtocol?
+    private var routeChangeObserver: NSObjectProtocol?
+    private var mediaServerResetObserver: NSObjectProtocol?
+
     // MARK: - Init
 
     init() {
         configureSession()
         buildGraph()
+        registerNotificationObservers()
+    }
+
+    deinit {
+        [interruptionObserver, routeChangeObserver, mediaServerResetObserver]
+            .compactMap { $0 }
+            .forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     // MARK: - Session
 
-    private func configureSession() {
+    private func configureSession(exclusive: Bool = false) {
         let session = AVAudioSession.sharedInstance()
         do {
-            // .playback keeps the process alive when backgrounded.
-            // Do NOT add .mixWithOthers — alarm needs exclusive audio focus.
-            try session.setCategory(.playback, options: [])
+            // During heartbeat-only mode, mix with others so YouTube and other audio
+            // apps never trigger an interruption. An interruption stops AVAudioEngine,
+            // causing the app to lose background audio protection and get jetsam-killed.
+            // Exclusive mode is only needed when the alarm is actively firing — at that
+            // point we want to interrupt other audio so the user clearly hears the alarm.
+            let options: AVAudioSession.CategoryOptions = exclusive ? [] : [.mixWithOthers]
+            try session.setCategory(.playback, options: options)
             try session.setActive(true)
+            sessionIsExclusive = exclusive
         } catch {
             print("AudioEngine: session setup failed: \(error)")
         }
@@ -64,11 +101,14 @@ final class AudioEngine {
     func startHeartbeat() {
         guard !engine.isRunning else { return }
 
-        scheduleHeartbeatBuffer()
-
         do {
+            // Stop the node before scheduling to avoid stacking looping buffers
+            // across multiple startHeartbeat() calls (e.g. after interruption cycles).
+            heartbeatNode.stop()
             try engine.start()
+            scheduleHeartbeatBuffer()
             heartbeatNode.play()
+            print("AudioEngine: heartbeat started")
         } catch {
             print("AudioEngine: engine start failed: \(error)")
         }
@@ -97,6 +137,11 @@ final class AudioEngine {
 
     /// Begin playing `alarm.soundName` with a volume ramp over `alarm.rampDurationSeconds`.
     func startAlarm(soundName: String, rampDurationSeconds: Int, vibrate: Bool) {
+        activeAlarmParams = AlarmParams(soundName: soundName,
+                                       rampDurationSeconds: rampDurationSeconds,
+                                       vibrate: vibrate)
+        // Switch to exclusive mode so the alarm interrupts YouTube / other audio.
+        configureSession(exclusive: true)
         if !engine.isRunning { startHeartbeat() }
 
         // Restore full mixer volume for audible playback.
@@ -177,6 +222,27 @@ final class AudioEngine {
         vibrationTimer = timer
     }
 
+    // MARK: - Audio session resilience
+
+    private func registerNotificationObservers() {
+        let session = AVAudioSession.sharedInstance()
+
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: session, queue: nil
+        ) { [weak self] notification in self?.handleInterruption(notification: notification) }
+
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: session, queue: nil
+        ) { [weak self] notification in self?.handleRouteChange(notification: notification) }
+
+        mediaServerResetObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: session, queue: nil
+        ) { [weak self] _ in self?.handleMediaServerReset() }
+    }
+
     // MARK: - Stop
 
     /// Stop alarm playback and vibration. Heartbeat continues running.
@@ -188,8 +254,81 @@ final class AudioEngine {
         vibrationTimer = nil
 
         alarmNode.stop()
+        activeAlarmParams = nil
 
         // Drop mixer volume back to near-silent for the heartbeat.
         engine.mainMixerNode.outputVolume = 0.0001
+
+        // Return to mixing mode so the heartbeat won't interrupt other audio
+        // while waiting for the next alarm.
+        configureSession(exclusive: false)
+    }
+}
+
+// MARK: - Audio session resilience
+
+private extension AudioEngine {
+
+    func handleInterruption(notification: Notification) {
+        guard
+            let userInfo = notification.userInfo,
+            let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+        else { return }
+
+        switch type {
+        case .began:
+            // AVAudioEngine stops itself on interruption; nothing to do.
+            print("AudioEngine: audio session interrupted — heartbeat paused")
+        case .ended:
+            // With .mixWithOthers, most interruptions (YouTube etc.) never reach this path.
+            // This handles edge cases like phone calls or Siri that interrupt even mixing sessions.
+            guard
+                let opts = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
+                AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
+            else { return }
+            if let params = activeAlarmParams {
+                // Alarm was ringing when interrupted — resume it rather than just the heartbeat.
+                print("AudioEngine: interruption ended — resuming alarm")
+                startAlarm(soundName: params.soundName,
+                           rampDurationSeconds: params.rampDurationSeconds,
+                           vibrate: params.vibrate)
+            } else {
+                print("AudioEngine: interruption ended — restarting heartbeat")
+                configureSession()  // defaults to mixing mode
+                startHeartbeat()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    func handleRouteChange(notification: Notification) {
+        guard
+            let userInfo = notification.userInfo,
+            let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+            AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable
+        else { return }
+
+        if !engine.isRunning {
+            print("AudioEngine: audio route changed (device unavailable) — restarting heartbeat")
+            startHeartbeat()
+        }
+    }
+
+    func handleMediaServerReset() {
+        // All AVAudio* objects are invalid after a media server crash. Rebuild from scratch.
+        print("AudioEngine: media server reset — rebuilding audio graph and restarting heartbeat")
+        rampTimer?.cancel()
+        rampTimer = nil
+        vibrationTimer?.cancel()
+        vibrationTimer = nil
+        // Replace the stale engine and nodes — they are invalid after a media server crash.
+        engine = AVAudioEngine()
+        heartbeatNode = AVAudioPlayerNode()
+        alarmNode = AVAudioPlayerNode()
+        configureSession()
+        buildGraph()
+        startHeartbeat()
     }
 }
