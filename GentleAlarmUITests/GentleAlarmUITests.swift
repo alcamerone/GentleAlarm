@@ -40,6 +40,8 @@ final class GentleAlarmUITests: XCTestCase {
             predicate: NSPredicate(format: "count == \(initialCount + 1)"),
             object: app.cells
         )
+        // 2 s is 4× the typical simulator animation duration (~0.3–0.5 s), providing
+        // ample headroom without padding the suite with unnecessary wall-clock time.
         XCTWaiter().wait(for: [oneAdded], timeout: 2)
         XCTAssertEqual(app.cells.count, initialCount + 1)
     }
@@ -56,7 +58,7 @@ final class GentleAlarmUITests: XCTestCase {
             predicate: NSPredicate(format: "count == \(initialCount)"),
             object: app.cells
         )
-        XCTWaiter().wait(for: [sheetGone], timeout: 2)
+        XCTWaiter().wait(for: [sheetGone], timeout: 2)  // see comment in testAddAlarmAppearsInList
         XCTAssertEqual(app.cells.count, initialCount)
     }
 

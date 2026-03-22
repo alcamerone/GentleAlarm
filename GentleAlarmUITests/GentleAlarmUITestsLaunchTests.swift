@@ -9,6 +9,9 @@ import XCTest
 
 final class GentleAlarmUITestsLaunchTests: XCTestCase {
 
+    // false: GentleAlarm has no configuration-varying assets or logic (no custom dark-mode
+    // colours, no Dynamic Type layouts under test), so running once per UI configuration
+    // (light + dark) produces identical screenshots. Disabled to halve launch-test time.
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         false
     }
