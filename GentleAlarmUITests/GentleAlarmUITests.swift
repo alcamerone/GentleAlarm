@@ -33,6 +33,14 @@ final class GentleAlarmUITests: XCTestCase {
     func testAddAlarmAppearsInList() throws {
         let initialCount = app.cells.count
         addAlarm()
+
+        // The sheet dismisses and the list animates asynchronously — wait for the
+        // cell count to increase before asserting (mirrors the pattern in testDeleteAlarm).
+        let oneAdded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count == \(initialCount + 1)"),
+            object: app.cells
+        )
+        XCTWaiter().wait(for: [oneAdded], timeout: 5)
         XCTAssertEqual(app.cells.count, initialCount + 1)
     }
 
@@ -41,6 +49,14 @@ final class GentleAlarmUITests: XCTestCase {
         let initialCount = app.cells.count
         app.buttons["addAlarmButton"].tap()
         app.buttons["cancelAlarmButton"].tap()
+
+        // Wait for the sheet to finish dismissing before asserting.
+        // On slow CI devices the sheet animation is asynchronous.
+        let sheetGone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count == \(initialCount)"),
+            object: app.cells
+        )
+        XCTWaiter().wait(for: [sheetGone], timeout: 5)
         XCTAssertEqual(app.cells.count, initialCount)
     }
 
@@ -79,7 +95,9 @@ final class GentleAlarmUITests: XCTestCase {
     func testToggleDisablesAlarm() throws {
         addAlarm()
 
+        // Wait for the new alarm cell (and its toggle) to appear before interacting.
         let toggle = app.switches.firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         let initialValue = toggle.value as? String
         toggle.tap()
         let newValue = toggle.value as? String
