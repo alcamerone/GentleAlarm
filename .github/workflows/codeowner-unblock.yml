@@ -67,6 +67,6 @@ jobs:
           fi
 
           echo "Re-running Gate job $GATE_JOB_ID in run $RUN_ID..."
-          gh run rerun "$RUN_ID" --job "$GATE_JOB_ID"
+          gh run rerun "$RUN_ID" --job "$GATE_JOB_ID" --repo "$GITHUB_REPOSITORY"
 
           echo "Done. Gate job queued for re-run."
