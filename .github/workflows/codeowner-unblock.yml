@@ -7,7 +7,6 @@ on:
 permissions:
   contents: read
   actions: write
-  checks: write
 
 jobs:
   unblock:
@@ -15,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.review.state == 'approved'
     steps:
-      - name: Unblock gate if tests passed
+      - name: Re-run Gate if CODEOWNER approved and tests passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEWER: ${{ github.event.review.user.login }}
@@ -47,22 +46,27 @@ jobs:
             exit 0
           fi
 
-          # Tests passed — find and patch the Gate check run to success
-          GATE_CHECK_ID=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
-            --jq '[.check_runs[] | select(.name | test("Gate$"))] | sort_by(.started_at) | last | .id' \
+          # Find the AI PR Review workflow run for this commit
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ai-review.yml/runs" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD_SHA\")] | first | .id" \
             2>/dev/null || echo "")
 
-          if [ -z "$GATE_CHECK_ID" ] || [ "$GATE_CHECK_ID" = "null" ]; then
-            echo "No Gate check run found for commit $HEAD_SHA — nothing to patch."
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No AI PR Review workflow run found for commit $HEAD_SHA — nothing to re-run."
             exit 1
           fi
 
-          echo "Patching Gate check run $GATE_CHECK_ID to success..."
-          gh api "repos/$GITHUB_REPOSITORY/check-runs/$GATE_CHECK_ID" \
-            --method PATCH \
-            --field status=completed \
-            --field conclusion=success \
-            --field "output[title]=Gate passed after CODEOWNER approval" \
-            --field "output[summary]=CODEOWNER @$REVIEWER approved this PR. Tests passed. All other checks overridden."
+          # Find the Gate job ID within that run
+          GATE_JOB_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.name | test("^Gate$"))] | last | .id' \
+            2>/dev/null || echo "")
 
-          echo "Done. Gate unblocked."
+          if [ -z "$GATE_JOB_ID" ] || [ "$GATE_JOB_ID" = "null" ]; then
+            echo "No Gate job found in run $RUN_ID — nothing to re-run."
+            exit 1
+          fi
+
+          echo "Re-running Gate job $GATE_JOB_ID in run $RUN_ID..."
+          gh run rerun "$RUN_ID" --job "$GATE_JOB_ID"
+
+          echo "Done. Gate job queued for re-run."
