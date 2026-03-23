@@ -40,7 +40,9 @@ final class GentleAlarmUITests: XCTestCase {
             predicate: NSPredicate(format: "count == \(initialCount + 1)"),
             object: app.cells
         )
-        XCTWaiter().wait(for: [oneAdded], timeout: 5)
+        // 2 s is 4× the typical simulator animation duration (~0.3–0.5 s), providing
+        // ample headroom without padding the suite with unnecessary wall-clock time.
+        XCTWaiter().wait(for: [oneAdded], timeout: 2)
         XCTAssertEqual(app.cells.count, initialCount + 1)
     }
 
@@ -56,7 +58,7 @@ final class GentleAlarmUITests: XCTestCase {
             predicate: NSPredicate(format: "count == \(initialCount)"),
             object: app.cells
         )
-        XCTWaiter().wait(for: [sheetGone], timeout: 5)
+        XCTWaiter().wait(for: [sheetGone], timeout: 2)  // see comment in testAddAlarmAppearsInList
         XCTAssertEqual(app.cells.count, initialCount)
     }
 
@@ -85,7 +87,7 @@ final class GentleAlarmUITests: XCTestCase {
             predicate: NSPredicate(format: "count == \(countBeforeDelete - 1)"),
             object: app.cells
         )
-        XCTWaiter().wait(for: [oneRemoved], timeout: 5)
+        XCTWaiter().wait(for: [oneRemoved], timeout: 2)
         XCTAssertEqual(app.cells.count, countBeforeDelete - 1)
     }
 
@@ -97,7 +99,7 @@ final class GentleAlarmUITests: XCTestCase {
 
         // Wait for the new alarm cell (and its toggle) to appear before interacting.
         let toggle = app.switches.firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 2))
         let initialValue = toggle.value as? String
         toggle.tap()
         let newValue = toggle.value as? String

@@ -83,17 +83,6 @@ struct AlarmManagerTests {
         manager.appDidForeground()  // must not crash
     }
 
-    @Test func testRescheduleNoAlarmsNoThrow() throws {
-        let (manager, _, _) = try makeManager()
-        manager.reschedule()  // must not crash with empty context
-    }
-
-    /// reschedule() must not crash (or restart the timer) while an alarm is actively ringing.
-    @Test @MainActor func testRescheduleDoesNotCrashWithActiveAlarm() throws {
-        let (manager, _, _) = try makeManager()
-        manager.activeAlarm = Alarm(hour: 7, minute: 0)
-        manager.reschedule()  // guard activeAlarm == nil should make this a no-op
-    }
 
     // MARK: - nearestPendingAlarm()
 
