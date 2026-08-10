@@ -1,6 +1,13 @@
 # GentleAlarm
 
-An iOS alarm clock app that replicates the native Clock UI while adding a configurable volume ramp-up — the alarm starts near-silent and gradually rises to full volume over a duration you choose.
+My first experiment with vibe-coding! I was frustrated with the lack of a volume ramp-up option for alarms in the native iOS Clock app,
+so had a crack at building one myself. As it turns out, because of limitations on what a third-party app can do in terms of scheduling
+wake-up, this is a difficult thing to achieve in iOS. As such, I would say this app is not reliable enough to use as your everyday
+alarm clock, but a fun experiment in any case.
+
+This repository also includes an automated review feature. When a pull request is submitted, a Github Action fires which runs an automated
+review of the PR, flags (and blocks merging on) any issues, and suggests changes. The AI review can be overridden with an approving review
+from a code owner.
 
 ## Features
 
